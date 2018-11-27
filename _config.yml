@@ -25,14 +25,13 @@ description: Probably some sort of website
 navbar-links:
   About Me: "aboutme"
   Resources:
-    - Beautiful Jekyll: "http://deanattali.com/beautiful-jekyll/"
-    - Learn markdown: "http://www.markdowntutorial.com/"
-    - GitHub Pages: "https://pages.github.com/"
-  Author's home: "http://deanattali.com"
+    - Beautiful Jekyll: "http://deanattali.com/beautiful-jekyll"
+    - GitHub Pages: "https://pages.github.com"
+  GitHub: "https://github.com/jeffpollock9"
 
 # Image to show in the navigation bar - image must be a square (width = height)
 # Remove this parameter if you don't want an image in the navbar
-avatar: "/img/avatar-icon.png"
+avatar: "/img/weim_five_weeks.jpg"
 
 # If you want to have an image logo in the top-left corner instead of the title text,
 # then specify the following parameter
@@ -73,10 +72,10 @@ author:
 social-network-links:
   rss: true
   email: "jeffpollock9@gmail.com"
-  facebook: daattali
-  github: daattali
-  twitter: daattali
-#  reddit: yourname
+  github: jeffpollock9
+  reddit: jeffyp9
+#  facebook: daattali
+#  twitter: daattali
 #  google-plus: +DeanAttali
 #  linkedin: daattali
 #  xing: yourname
@@ -99,7 +98,7 @@ share-links-active:
 
 # How to display the link to the website in the footer
 # Remove this if you don't want a link in the footer
-url-pretty: "MyWebsite.com"  # eg. "deanattali.com/beautiful-jekyll"
+url-pretty: "jeffpollock9.github.io"  # eg. "deanattali.com/beautiful-jekyll"
 
 # --- Web Statistics Section --- #
 

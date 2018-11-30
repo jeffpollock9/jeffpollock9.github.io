@@ -25,6 +25,7 @@ description: Probably some sort of website
 navbar-links:
   About Me: "aboutme"
   Resources:
+    - Smartodds loves statistics: "https://smartodds.blog"
     - Beautiful Jekyll: "http://deanattali.com/beautiful-jekyll"
     - GitHub Pages: "https://pages.github.com"
   GitHub: "https://github.com/jeffpollock9"

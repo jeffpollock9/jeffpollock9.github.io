@@ -25,10 +25,10 @@ Here is some latex:
 
 Here is some code I went and ran:
 
-#+BEGIN_SRC R :results output graphics :exports both :file ../img/plot.png
+#+BEGIN_SRC R :results output graphics :exports both :file ../img/example-plot.png
   library(GGally)
   ggpairs(iris)
 #+END_SRC
 
 #+RESULTS:
-[[file:../img/plot.png]]
+[[file:../img/example-plot.png]]

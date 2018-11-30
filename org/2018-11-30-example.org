@@ -1,0 +1,34 @@
+#+BEGIN_EXPORT html
+---
+layout: post
+title: "Blogging with Emacs, Org, and GitHub Pages"
+permalink: /:title/
+tags: [emacs]
+---
+#+END_EXPORT
+
+This is an example taken from https://carl.ac/blogging-with-emacs-org-github-pages.
+
+Here is a table:
+
+| foo | bar | baz |
+|-----+-----+-----|
+|   1 |   2 |   3 |
+
+Here is some latex:
+
+#+BEGIN_LATEX latex
+\begin{equation}
+\dot{\theta} \bar{\pi} \hat{\tau} \vec{\cup} \delta
+\end{equation}
+#+END_LATEX
+
+Here is some code I went and ran:
+
+#+BEGIN_SRC R :results output graphics :exports both :file ../img/plot.png
+  library(GGally)
+  ggpairs(iris)
+#+END_SRC
+
+#+RESULTS:
+[[file:../img/plot.png]]

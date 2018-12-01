@@ -1,0 +1,93 @@
+---
+layout: post
+title: "Blogging with Emacs, Org, and GitHub Pages"
+permalink: /:title/
+tags: [emacs, org]
+---
+
+<p>
+This post is for experimenting. Many thanks to <a href="https://carl.ac/blogging-with-emacs-org-github-pages">Carl Lieberman</a> and <a href="https://github.com/daattali/beautiful-jekyll">Dean Attali</a>
+for providing the main tools for this blog.
+</p>
+
+<p>
+Here is a table with a formula for the sum:
+</p>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-right" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-right">1</td>
+<td class="org-right">2</td>
+<td class="org-right">3</td>
+<td class="org-right">6</td>
+</tr>
+
+<tr>
+<td class="org-right">42</td>
+<td class="org-right">42</td>
+<td class="org-right">41</td>
+<td class="org-right">125</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+Here is some inline latex \(\int_0^1 \omega^2 d\omega\) and then some more latex:
+</p>
+
+<div class="LATEX">
+\begin{equation}
+p(\theta | D) \propto p(D | \theta) p(\theta)
+\end{equation}
+
+</div>
+
+<p>
+Here is some <code>R</code> code I went and ran which does a plot:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-R"><span style="color: #BFEBBF;">library</span>(GGally)
+ggpairs(iris)
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/first-post-ggpairs.png" alt="first-post-ggpairs.png" />
+</p>
+</div>
+
+<p>
+Here is some <code>C++</code> code:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-C++"><span style="color: #94BFF3;">#include</span> <span style="color: #CC9393;">&lt;iostream&gt;</span>
+
+<span style="color: #7CB8BB;">int</span> <span style="color: #93E0E3;">main</span>() {
+    <span style="color: #BFEBBF;">std</span>::cout &lt;&lt; <span style="color: #CC9393;">"Hello world!\n"</span>;
+}
+</pre>
+</div>
+
+<pre class="example">
+Hello world!
+
+</pre>
+
+<p>
+What more could I ever need?
+</p>

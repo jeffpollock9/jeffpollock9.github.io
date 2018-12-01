@@ -15,7 +15,7 @@ Here is a table:
 |-----+-----+-----|
 |   1 |   2 |   3 |
 
-Here is some latex: \(\omega\) and then some more:
+Here is some latex: \omega and then some more:
 
 #+BEGIN_LATEX latex
 \begin{equation}

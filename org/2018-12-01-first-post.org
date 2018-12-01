@@ -1,0 +1,52 @@
+#+BEGIN_EXPORT html
+---
+layout: post
+title: "Blogging with Emacs, Org, and GitHub Pages"
+permalink: /:title/
+tags: [emacs, org]
+---
+#+END_EXPORT
+
+This post is for experimenting. Many thanks to [[https://carl.ac/blogging-with-emacs-org-github-pages][Carl Lieberman]] and [[https://github.com/daattali/beautiful-jekyll][Dean Attali]]
+for providing the main tools for this blog.
+
+Here is a table with a formula for the sum:
+
+| ! | foo | bar | baz | sum |
+|---+-----+-----+-----+-----|
+| # |   1 |   2 |   3 |   6 |
+| # |  42 |  42 |  41 | 125 |
+#+TBLFM: $5=vsum($foo..$baz)
+
+Here is some inline latex $\int_0^1 \omega^2 d\omega$ and then some more latex:
+
+#+BEGIN_LATEX latex
+\begin{equation}
+p(\theta | D) \propto p(D | \theta) p(\theta)
+\end{equation}
+#+END_LATEX
+
+Here is some =R= code I went and ran which does a plot:
+
+#+BEGIN_SRC R :results output graphics :exports both :file ../img/first-post-ggpairs.png
+  library(GGally)
+  ggpairs(iris)
+#+END_SRC
+
+#+RESULTS:
+[[file:../img/first-post-ggpairs.png]]
+
+Here is some =C++= code:
+
+#+BEGIN_SRC C++ :exports both
+  #include <iostream>
+
+  int main() {
+      std::cout << "Hello world!\n";
+  }
+#+END_SRC
+
+#+RESULTS:
+: Hello world!
+
+What more could I ever need?

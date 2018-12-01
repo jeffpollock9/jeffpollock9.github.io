@@ -14,8 +14,8 @@ for providing the main tools for this blog.
 Here is a table with a formula for the sum:
 </p>
 
-<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
-
+<table id="org2a30ab1" border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+<caption class="t-above"><span class="table-number">Table 1:</span> This is a table. Cool.</caption>
 
 <colgroup>
 <col  class="org-right" />
@@ -26,6 +26,14 @@ Here is a table with a formula for the sum:
 
 <col  class="org-right" />
 </colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-right">foo</th>
+<th scope="col" class="org-right">bar</th>
+<th scope="col" class="org-right">baz</th>
+<th scope="col" class="org-right">sum</th>
+</tr>
+</thead>
 <tbody>
 <tr>
 <td class="org-right">1</td>
@@ -44,7 +52,12 @@ Here is a table with a formula for the sum:
 </table>
 
 <p>
-Here is some inline latex \(\int_0^1 \omega^2 d\omega\) and then some more latex:
+Here is a reference to the above <a href="#org2a30ab1">table</a>.
+</p>
+
+<p>
+Here is some inline latex \(\int_0^1 \omega^2 d\omega\) and then some more
+latex:
 </p>
 
 <div class="LATEX">
@@ -59,7 +72,7 @@ Here is some <code>R</code> code I went and ran which does a plot:
 </p>
 
 <div class="org-src-container">
-<pre class="src src-R"><span style="color: #BFEBBF;">library</span>(GGally)
+<pre class="src src-R" id="orgd119c1b"><span style="color: #BFEBBF;">library</span>(GGally)
 ggpairs(iris)
 </pre>
 </div>
@@ -69,6 +82,10 @@ ggpairs(iris)
 <p><img src="../img/first-post-ggpairs.png" alt="first-post-ggpairs.png" />
 </p>
 </div>
+
+<p>
+And then a reference to the <a href="#orgd119c1b">R code</a>.
+</p>
 
 <p>
 Here is some <code>C++</code> code:
@@ -87,6 +104,10 @@ Here is some <code>C++</code> code:
 Hello world!
 
 </pre>
+
+<p>
+You can also run code inline, for example the answer to 1+1 is <code>2</code>.
+</p>
 
 <p>
 What more could I ever need?

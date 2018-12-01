@@ -12,13 +12,18 @@ for providing the main tools for this blog.
 
 Here is a table with a formula for the sum:
 
-| ! | foo | bar | baz | sum |
+#+NAME: tab:sum
+#+CAPTION: This is a table. Cool.
+|   | foo | bar | baz | sum |
 |---+-----+-----+-----+-----|
 | # |   1 |   2 |   3 |   6 |
 | # |  42 |  42 |  41 | 125 |
-#+TBLFM: $5=vsum($foo..$baz)
+#+TBLFM: $5=vsum($2..$4)
 
-Here is some inline latex $\int_0^1 \omega^2 d\omega$ and then some more latex:
+Here is a reference to the above [[tab:sum][table]].
+
+Here is some inline latex \(\int_0^1 \omega^2 d\omega\) and then some more
+latex:
 
 #+BEGIN_LATEX latex
 \begin{equation}
@@ -26,17 +31,20 @@ p(\theta | D) \propto p(D | \theta) p(\theta)
 \end{equation}
 #+END_LATEX
 
-Here is some =R= code I went and ran which does a plot:
+Here is some ~R~ code I went and ran which does a plot:
 
+#+NAME: code:R
 #+BEGIN_SRC R :results output graphics :exports both :file ../img/first-post-ggpairs.png
   library(GGally)
   ggpairs(iris)
 #+END_SRC
 
-#+RESULTS:
+#+RESULTS: code:R
 [[file:../img/first-post-ggpairs.png]]
 
-Here is some =C++= code:
+And then a reference to the [[code:R][R code]].
+
+Here is some ~C++~ code:
 
 #+BEGIN_SRC C++ :exports both
   #include <iostream>
@@ -48,5 +56,7 @@ Here is some =C++= code:
 
 #+RESULTS:
 : Hello world!
+
+You can also run code inline, for example the answer to 1+1 is src_R{1+1}.
 
 What more could I ever need?

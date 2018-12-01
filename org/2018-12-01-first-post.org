@@ -13,7 +13,7 @@ for providing the main tools for this blog.
 Here is a table with a formula for the sum:
 
 #+NAME: tab:sum
-#+CAPTION: This is a table. Cool.
+#+CAPTION: Witty table caption.
 |   | foo | bar | baz | sum |
 |---+-----+-----+-----+-----|
 | # |   1 |   2 |   3 |   6 |
@@ -21,6 +21,18 @@ Here is a table with a formula for the sum:
 #+TBLFM: $5=vsum($2..$4)
 
 Here is a reference to the above [[tab:sum][table]].
+
+Another table to check the reference is right (the taylor expansion is automatic
+too):
+
+#+NAME: tab:taylor
+#+CAPTION: Taylor expansions of \(\exp(x)\)
+|   | f      | n | x | Taylor expansion of order n |
+|---+--------+---+---+-----------------------------|
+| # | exp(x) | 1 | x | 1 + x                       |
+| # | exp(x) | 2 | x | 1 + x + x^2 / 2             |
+| # | exp(x) | 3 | x | 1 + x + x^2 / 2 + x^3 / 6   |
+#+TBLFM: $5=taylor($2,$4,$3)
 
 Here is some inline latex \(\int_0^1 \omega^2 d\omega\) and then some more
 latex:
@@ -50,7 +62,7 @@ Here is some ~C++~ code:
   #include <iostream>
 
   int main() {
-      std::cout << "Hello world!\n";
+      std::cout << "Hello world!";
   }
 #+END_SRC
 

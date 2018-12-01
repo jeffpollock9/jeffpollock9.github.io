@@ -15,7 +15,7 @@ Here is a table with a formula for the sum:
 </p>
 
 <table id="org2a30ab1" border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
-<caption class="t-above"><span class="table-number">Table 1:</span> This is a table. Cool.</caption>
+<caption class="t-above"><span class="table-number">Table 1:</span> Witty table caption.</caption>
 
 <colgroup>
 <col  class="org-right" />
@@ -54,6 +54,55 @@ Here is a table with a formula for the sum:
 <p>
 Here is a reference to the above <a href="#org2a30ab1">table</a>.
 </p>
+
+<p>
+Another table to check the reference is right (the taylor expansion is automatic
+too):
+</p>
+
+<table id="org8d03ac4" border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+<caption class="t-above"><span class="table-number">Table 2:</span> Taylor expansions of \(\exp(x)\)</caption>
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-right" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">f</th>
+<th scope="col" class="org-right">n</th>
+<th scope="col" class="org-left">x</th>
+<th scope="col" class="org-left">Taylor expansion of order n</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">exp(x)</td>
+<td class="org-right">1</td>
+<td class="org-left">x</td>
+<td class="org-left">1 + x</td>
+</tr>
+
+<tr>
+<td class="org-left">exp(x)</td>
+<td class="org-right">2</td>
+<td class="org-left">x</td>
+<td class="org-left">1 + x + x<sup>2</sup> / 2</td>
+</tr>
+
+<tr>
+<td class="org-left">exp(x)</td>
+<td class="org-right">3</td>
+<td class="org-left">x</td>
+<td class="org-left">1 + x + x<sup>2</sup> / 2 + x<sup>3</sup> / 6</td>
+</tr>
+</tbody>
+</table>
 
 <p>
 Here is some inline latex \(\int_0^1 \omega^2 d\omega\) and then some more
@@ -95,7 +144,7 @@ Here is some <code>C++</code> code:
 <pre class="src src-C++"><span style="color: #94BFF3;">#include</span> <span style="color: #CC9393;">&lt;iostream&gt;</span>
 
 <span style="color: #7CB8BB;">int</span> <span style="color: #93E0E3;">main</span>() {
-    <span style="color: #BFEBBF;">std</span>::cout &lt;&lt; <span style="color: #CC9393;">"Hello world!\n"</span>;
+    <span style="color: #BFEBBF;">std</span>::cout &lt;&lt; <span style="color: #CC9393;">"Hello world!"</span>;
 }
 </pre>
 </div>

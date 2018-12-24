@@ -1,3 +1,5 @@
+#+OPTIONS: toc:nil
+
 #+BEGIN_EXPORT html
 ---
 layout: post
@@ -6,6 +8,8 @@ permalink: /:title/
 tags: [pyro, pystan]
 ---
 #+END_EXPORT
+
+#+TOC: headlines 2
 
 [[http://pyro.ai/][Uber's pyro]] as described in [[https://arxiv.org/abs/1810.09538][Pyro: Deep Universal Probabilistic Programming]]
 sounds pretty cool so I thought I'd give it a whirl. They seem to have focussed
@@ -238,7 +242,7 @@ The stan model definition doesn't look dissimilar to the pyro model function:
   stan_time = tm.time() - start
 #+END_SRC
 
-Getting the equivalent inference information out of stan is very easy however:
+I found getting the equivalent inference information out of stan much easier:
 
 #+BEGIN_SRC python :session pyro :results output :exports both
   print(stan_fit)
@@ -286,13 +290,13 @@ convergence, Rhat=1).
 It also looks like the sampling algorithm in stan was a bit more efficient as
 the estimated sample size (~n_eff~) is much bigger in stan (around 5,000) compared
 to pyro (around 3,000) for 3,000 post warmup draws. This is assuming that the
-~n_eff~ calculation is the same in stan in pyro, but I would be surprised if it
+~n_eff~ calculation is the same in stan and pyro, but I would be surprised if it
 wasn't as I see a lot of references to stan (in particular for testing) in the
 pyro codebase.
 
-Also at first I was surprised that the effective sample size is stan is actually
-bigger than the total number of samples taken! There is plenty of discussion
-about this from the stan guys, I liked [[https://cran.r-project.org/web/packages/bayesplot/vignettes/visual-mcmc-diagnostics.html#fn1][this short explanation]]:
+Additionally, at first I was surprised that the effective sample size is stan is
+actually bigger than the total number of samples taken! There is plenty of
+discussion about this from the stan guys, I liked [[https://cran.r-project.org/web/packages/bayesplot/vignettes/visual-mcmc-diagnostics.html#fn1][this short explanation]]:
 
 #+BEGIN_QUOTE
 \(n_{eff} > N\) indicates that the mean estimate of the parameter computed from

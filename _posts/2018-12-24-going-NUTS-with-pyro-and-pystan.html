@@ -1,3 +1,10 @@
+---
+layout: post
+title: "Going NUTS with pyro and pystan"
+permalink: /:title/
+tags: [pyro, pystan]
+---
+
 <div id="table-of-contents">
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
@@ -8,12 +15,6 @@
 </ul>
 </div>
 </div>
----
-layout: post
-title: "Going NUTS with pyro and pystan"
-permalink: /:title/
-tags: [pyro, pystan]
----
 
 <p>
 <a href="http://pyro.ai/">Uber's pyro</a> as described in <a href="https://arxiv.org/abs/1810.09538">Pyro: Deep Universal Probabilistic Programming</a>
@@ -390,7 +391,7 @@ The stan model definition doesn't look dissimilar to the pyro model function:
 </div>
 
 <p>
-Getting the equivalent inference information out of stan is very easy however:
+I found getting the equivalent inference information out of stan much easier:
 </p>
 
 <div class="org-src-container">
@@ -416,7 +417,7 @@ beta[8]   4.62  4.5e-5 3.3e-3   4.61   4.62   4.62   4.62   4.63   5366    1.0
 sigma     0.17  3.7e-5 2.4e-3   0.16   0.17   0.17   0.17   0.17   4192    1.0
 lp__    3205.9    0.06   2.21 3200.8 3204.6 3206.2 3207.5 3209.2   1283    1.0
 
-Samples were drawn using NUTS at Mon Dec 24 18:43:55 2018.
+Samples were drawn using NUTS at Mon Dec 24 19:29:57 2018.
 For each parameter, n_eff is a crude measure of effective sample size,
 and Rhat is the potential scale reduction factor on split chains (at 
 convergence, Rhat=1).
@@ -440,15 +441,15 @@ plt.close()
 It also looks like the sampling algorithm in stan was a bit more efficient as
 the estimated sample size (<code>n_eff</code>) is much bigger in stan (around 5,000) compared
 to pyro (around 3,000) for 3,000 post warmup draws. This is assuming that the
-<code>n_eff</code> calculation is the same in stan in pyro, but I would be surprised if it
+<code>n_eff</code> calculation is the same in stan and pyro, but I would be surprised if it
 wasn't as I see a lot of references to stan (in particular for testing) in the
 pyro codebase.
 </p>
 
 <p>
-Also at first I was surprised that the effective sample size is stan is actually
-bigger than the total number of samples taken! There is plenty of discussion
-about this from the stan guys, I liked <a href="https://cran.r-project.org/web/packages/bayesplot/vignettes/visual-mcmc-diagnostics.html#fn1">this short explanation</a>:
+Additionally, at first I was surprised that the effective sample size is stan is
+actually bigger than the total number of samples taken! There is plenty of
+discussion about this from the stan guys, I liked <a href="https://cran.r-project.org/web/packages/bayesplot/vignettes/visual-mcmc-diagnostics.html#fn1">this short explanation</a>:
 </p>
 
 <blockquote>
@@ -477,8 +478,8 @@ speed of pyro and stan:
 </div>
 
 <pre class="example">
-pyro took 420.41 seconds
-stan took 7.28 seconds
+pyro took 360.73 seconds
+stan took 6.30 seconds
 
 </pre>
 

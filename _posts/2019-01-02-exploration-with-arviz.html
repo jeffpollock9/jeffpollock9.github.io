@@ -1,0 +1,280 @@
+---
+layout: post
+title: "Exploration with arviz"
+permalink: /:title/
+tags: [pyro, arviz]
+---
+
+<p>
+<a href="https://jeffpollock9.github.io/going-NUTS-with-pyro-and-pystan/">In a previous post</a> I had a look at using pyro but found myself writing a lot
+more code just to have a look at the inference than to actually perform
+it. Fortunately, one of the <a href="https://github.com/arviz-devs/arviz">arviz</a> developers <a href="http://disq.us/p/1ydlud4">commented</a> on the post and let me
+know that arviz would have helped me out with this so this post reflects my
+experience with it.
+</p>
+
+<p>
+When I first tried arviz I actually had some problems using multiple chains,
+however shortly after making <a href="https://github.com/arviz-devs/arviz/issues/462">an issue</a> one of the developers (<a href="https://github.com/ahartikainen">ahartikainen</a>, who
+originally pointed me to arviz) helped me through a simple <a href="https://github.com/arviz-devs/arviz/pull/463">pull request</a> to get
+it fixed, which was pretty awesome!
+</p>
+
+<p>
+Using the same example as before:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> torch
+<span style="color: #F0DFAF; font-weight: bold;">import</span> pyro
+<span style="color: #F0DFAF; font-weight: bold;">import</span> pyro.distributions <span style="color: #F0DFAF; font-weight: bold;">as</span> dist
+<span style="color: #F0DFAF; font-weight: bold;">import</span> pyro.infer.mcmc <span style="color: #F0DFAF; font-weight: bold;">as</span> mcmc
+<span style="color: #F0DFAF; font-weight: bold;">import</span> arviz <span style="color: #F0DFAF; font-weight: bold;">as</span> az
+
+torch.multiprocessing.set_sharing_strategy(<span style="color: #CC9393;">"file_system"</span>)
+pyro.set_rng_seed(42)
+
+<span style="color: #DFAF8F;">NUM_WARMUP</span> = 1000
+<span style="color: #DFAF8F;">NUM_SAMPLES</span> = 1000
+<span style="color: #DFAF8F;">NUM_CHAINS</span> = 3
+<span style="color: #DFAF8F;">N</span> = 2500
+<span style="color: #DFAF8F;">P</span> = 8
+
+<span style="color: #DFAF8F;">alpha_true</span> = dist.Normal(42.0, 10.0).sample()
+<span style="color: #DFAF8F;">beta_true</span> = dist.Normal(torch.zeros(P), 10.0).sample()
+<span style="color: #DFAF8F;">sigma_true</span> = dist.Exponential(1.0).sample()
+
+<span style="color: #DFAF8F;">eps</span> = dist.Normal(0.0, sigma_true).sample([N])
+<span style="color: #DFAF8F;">x</span> = torch.randn(N, P)
+<span style="color: #DFAF8F;">y</span> = alpha_true + x @ beta_true + eps
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">model</span>(x, y):
+    <span style="color: #DFAF8F;">alpha</span> = pyro.sample(<span style="color: #CC9393;">"alpha"</span>, dist.Normal(0.0, 100.0))
+    <span style="color: #DFAF8F;">beta</span> = pyro.sample(<span style="color: #CC9393;">"beta"</span>, dist.Normal(torch.zeros(P), 10.0))
+    <span style="color: #DFAF8F;">sigma</span> = pyro.sample(<span style="color: #CC9393;">"sigma"</span>, dist.HalfNormal(10.0))
+    <span style="color: #DFAF8F;">mu</span> = alpha + x @ beta
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> pyro.sample(<span style="color: #CC9393;">"y"</span>, dist.Normal(mu, sigma), obs=y)
+
+
+<span style="color: #DFAF8F;">kernel</span> = mcmc.NUTS(model, jit_compile=<span style="color: #BFEBBF;">True</span>)
+
+<span style="color: #DFAF8F;">posterior</span> = mcmc.MCMC(kernel,
+                      num_samples=NUM_SAMPLES,
+                      warmup_steps=NUM_WARMUP,
+                      num_chains=NUM_CHAINS,
+                      disable_progbar=<span style="color: #BFEBBF;">True</span>).run(x, y)
+</pre>
+</div>
+
+<p>
+We can print some basic posterior information via:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #DFAF8F;">data</span> = az.from_pyro(posterior)
+<span style="color: #DFAF8F;">summary</span> = az.summary(data)
+
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(summary)
+</pre>
+</div>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">&#xa0;</th>
+<th scope="col" class="org-right">mean</th>
+<th scope="col" class="org-right">sd</th>
+<th scope="col" class="org-right">mc error</th>
+<th scope="col" class="org-right">hpd 3%</th>
+<th scope="col" class="org-right">hpd 97%</th>
+<th scope="col" class="org-right">eff<sub>n</sub></th>
+<th scope="col" class="org-right">r<sub>hat</sub></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">alpha</td>
+<td class="org-right">45.37</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">45.36</td>
+<td class="org-right">45.37</td>
+<td class="org-right">3079</td>
+<td class="org-right">1</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[0]</td>
+<td class="org-right">1.29</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">1.29</td>
+<td class="org-right">1.3</td>
+<td class="org-right">3048</td>
+<td class="org-right">1</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[1]</td>
+<td class="org-right">2.35</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">2.34</td>
+<td class="org-right">2.36</td>
+<td class="org-right">2775</td>
+<td class="org-right">1</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[2]</td>
+<td class="org-right">2.3</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">2.3</td>
+<td class="org-right">2.31</td>
+<td class="org-right">3313</td>
+<td class="org-right">1</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[3]</td>
+<td class="org-right">-11.23</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">-11.23</td>
+<td class="org-right">-11.22</td>
+<td class="org-right">2970</td>
+<td class="org-right">1</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[4]</td>
+<td class="org-right">-1.86</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">-1.87</td>
+<td class="org-right">-1.85</td>
+<td class="org-right">3294</td>
+<td class="org-right">1</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[5]</td>
+<td class="org-right">22.09</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">22.08</td>
+<td class="org-right">22.1</td>
+<td class="org-right">3106</td>
+<td class="org-right">1</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[6]</td>
+<td class="org-right">-6.38</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">-6.39</td>
+<td class="org-right">-6.38</td>
+<td class="org-right">3048</td>
+<td class="org-right">1</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[7]</td>
+<td class="org-right">4.62</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">4.61</td>
+<td class="org-right">4.63</td>
+<td class="org-right">3366</td>
+<td class="org-right">1</td>
+</tr>
+
+<tr>
+<td class="org-left">sigma</td>
+<td class="org-right">0.17</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+<td class="org-right">0.16</td>
+<td class="org-right">0.17</td>
+<td class="org-right">2200</td>
+<td class="org-right">1</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+Nice! That was a lot easier than what I did before&#x2026;
+</p>
+
+<p>
+There are also lots of plots we can look at:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> matplotlib.pyplot <span style="color: #F0DFAF; font-weight: bold;">as</span> plt
+
+az.plot_trace(data, var_names=[<span style="color: #CC9393;">"alpha"</span>, <span style="color: #CC9393;">"sigma"</span>])
+plt.savefig(<span style="color: #CC9393;">"../img/arviz_trace_alpha_sigma.png"</span>)
+plt.close()
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/arviz_trace_alpha_sigma.png" alt="arviz_trace_alpha_sigma.png" />
+</p>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-python">az.plot_joint(data, var_names=[<span style="color: #CC9393;">"alpha"</span>, <span style="color: #CC9393;">"sigma"</span>], kind=<span style="color: #CC9393;">"hexbin"</span>)
+plt.savefig(<span style="color: #CC9393;">"../img/arviz_joint_alpha_sigma.png"</span>)
+plt.close()
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/arviz_joint_alpha_sigma.png" alt="arviz_joint_alpha_sigma.png" />
+</p>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-python">az.plot_posterior(data, var_names=[<span style="color: #CC9393;">"beta"</span>])
+plt.savefig(<span style="color: #CC9393;">"../img/arviz_posterior_beta.png"</span>)
+plt.close()
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/arviz_posterior_beta.png" alt="arviz_posterior_beta.png" />
+</p>
+</div>
+
+<p>
+I've only shown a fraction of the arviz capabilities here, for more see e.g. <a href="https://arviz-devs.github.io/arviz/index.html">the
+arviz official docs</a>. It looks look a cool project, and I will be using it when I
+find myself in python.
+</p>

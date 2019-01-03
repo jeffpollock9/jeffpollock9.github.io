@@ -1,0 +1,220 @@
+#+BEGIN_EXPORT html
+---
+layout: post
+title: "Multivariate normal covariance matrices and the cholesky decomposition"
+permalink: /:title/
+tags: [multivariate normal, cholesky]
+---
+#+END_EXPORT
+
+This post is mainly some notes about linear algebra, the cholesky decomposition,
+and a way of parametrising the multivariate normal which might be more efficient
+in some cases. As you can see at the end, I am pretty sure I am missing at least
+one important step right now.
+
+The multivariate normal covariance matrix \(\Sigma\) is symmetric [[https://en.wikipedia.org/wiki/Positive-definite_matrix#Positive_semidefinite][positive
+semi-definite]] which means that it can be written as:
+
+\begin{equation*}
+\Sigma = L L^T
+\end{equation*}
+
+where \(L\) is lower triangular. This is known as the [[https://en.wikipedia.org/wiki/Cholesky_decomposition][Cholesky decomposition]] and
+is available in any half decent linear algebra library, for example
+[[https://devdocs.io/numpy~1.14/generated/numpy.linalg.cholesky][numpy.linalg.cholesky]] in python or [[https://www.rdocumentation.org/packages/base/versions/3.5.2/topics/chol][chol]] in R.
+
+That means that one easy way to create a positive semi-definite matrix is to
+start with \(L\):
+
+#+BEGIN_SRC python :session Python :exports both :results output
+  import numpy as np
+
+  np.random.seed(42)
+
+  L = np.tril(np.random.normal(0.0, 1.0, [4, 4]))
+  Sigma = L @ L.T
+  chol = np.linalg.cholesky(Sigma)
+
+  print("L:\n{}".format(L))
+  print("chol:\n{}".format(chol))
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+L:
+[[ 0.49671415  0.          0.          0.        ]
+ [-0.23415337 -0.23413696  0.          0.        ]
+ [-0.46947439  0.54256004 -0.46341769  0.        ]
+ [ 0.24196227 -1.91328024 -1.72491783 -0.56228753]]
+chol:
+[[ 0.49671415  0.          0.          0.        ]
+ [-0.23415337  0.23413696  0.          0.        ]
+ [-0.46947439 -0.54256004  0.46341769  0.        ]
+ [ 0.24196227  1.91328024  1.72491783  0.56228753]]
+#+end_example
+
+But we see here that ~L~ and ~chol~ are not the same - some of the signs have
+switched. To ensure that this doesn't happen (i.e. there is a unique solution),
+we need to ensure that the diagonal of \(L\) is positive (see the [[https://mc-stan.org/docs/2_18/reference-manual/covariance-matrices-1.html][covariance
+matrices section of the stan manual]]):
+
+#+BEGIN_SRC python :session Python :exports both :results output
+  np.random.seed(42)
+
+  d = 4
+  L = np.tril(np.random.normal(0.0, 1.0, [d, d]))
+  np.fill_diagonal(L, np.abs(np.diag(L)))
+  Sigma = L @ L.T
+  chol = np.linalg.cholesky(Sigma)
+
+  print("L:\n{}".format(L))
+  print("chol:\n{}".format(chol))
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+L:
+[[ 0.49671415  0.          0.          0.        ]
+ [-0.23415337  0.23413696  0.          0.        ]
+ [-0.46947439  0.54256004  0.46341769  0.        ]
+ [ 0.24196227 -1.91328024 -1.72491783  0.56228753]]
+chol:
+[[ 0.49671415  0.          0.          0.        ]
+ [-0.23415337  0.23413696  0.          0.        ]
+ [-0.46947439  0.54256004  0.46341769  0.        ]
+ [ 0.24196227 -1.91328024 -1.72491783  0.56228753]]
+#+end_example
+
+In addition to allowing us to easily create random covariance matrices, the
+cholesky parametrisation of the multivariate normal PDF is much more
+efficient. The typical PDF you see is:
+
+\begin{equation*}
+p(y | \mu, \Sigma) = \frac{1}{(2 \pi)^{d / 2} |\Sigma|^{1/2}} e^{-\frac{1}{2}(y - \mu)^T \Sigma^{-1} (y - \mu)}
+\end{equation*}
+
+where \(d\) is the dimension of the random vector. Implementing this directly
+gives something like:
+
+#+BEGIN_SRC python :session Python :exports both :results output
+  import scipy.stats as stats
+
+  def multivariate_normal_pdf(y, mu, Sigma):
+      d = np.shape(mu)[0]
+      sqrt_det = np.sqrt(np.linalg.det(Sigma))
+      two_pi_power = np.power((2.0 * np.pi), d / 2.0)
+      y_minus_mu = y - mu
+      exp = np.exp(-0.5 * y_minus_mu.T @ np.linalg.inv(Sigma) @ y_minus_mu)
+      return 1.0 / (two_pi_power * sqrt_det) * exp
+
+  y = np.random.normal(0.0, 0.1, [d, 1])
+  mu = np.random.normal(0.0, 0.1, [d, 1])
+
+  me = multivariate_normal_pdf(y, mu, Sigma)[0, 0]
+  scipy = stats.multivariate_normal.pdf(np.squeeze(y), np.squeeze(mu), Sigma)
+
+  print("me:    {:0.8f}".format(me))
+  print("scipy: {:0.8f}".format(scipy))
+#+END_SRC
+
+#+RESULTS:
+: me:    0.10220544
+: scipy: 0.10220544
+
+However if we work with the cholesky parameterisation (i.e. use \(L\)) we
+firstly have:
+
+\begin{equation*}
+|\Sigma| = |L L^T| = |L| |L^T| = |L|^2 = (\prod_{i=1}^{d} L_{i, i})^2
+\end{equation*}
+
+since for square matrices \(A\) and \(B\):
+
+1. \(|A B| = |A| |B|\)
+2. \(|A^T| = |A|\)
+3. for a triangular matrix \(L\), the determinant is the product of the diagonal
+   entries
+
+see [[https://en.wikipedia.org/wiki/Determinant#Properties_of_the_determinant][properties of the determinant]]. Additionally, the term in the PDF is
+\(|\Sigma|^{1/2}\), so in the PDF we need only calculate \(|\Sigma|^{1/2} =
+\prod_{i=1}^{d} L_{i, i}\). In code the square root of the determinant is:
+
+#+BEGIN_SRC python :session Python :exports both :results output
+  sqrt_Sigma_det = np.sqrt(np.linalg.det(Sigma))
+  sqrt_L_det = np.prod(np.diag(L))
+
+  print("|Sigma|^0.5 = {:0.8f}".format(sqrt_Sigma_det))
+  print("|L|         = {:0.8f}".format(sqrt_L_det))
+#+END_SRC
+
+#+RESULTS:
+: |Sigma|^0.5 = 0.03030453
+: |L|         = 0.03030453
+
+We secondly have:
+
+\begin{equation*}
+\Sigma^{-1} = (L L^T)^{-1} = L^{-T} L^{-1}
+\end{equation*}
+
+since for invertible square matrices \(A\) and \(B\): \((A B)^{-1} = B^{-1}
+A^{-1}\) see [[https://en.wikipedia.org/wiki/Invertible_matrix#Other_properties][properties of invertible matrix]]. Thus:
+
+\begin{equation*}
+(y - \mu)^T \Sigma^{-1} (y - \mu) = (y - \mu)^T L^{-T} L^{-1} (y - \mu) = (L^{-1}(y - \mu))^T L^{-1} (y - \mu)
+\end{equation*}
+
+since \((AB)^T = B^T A^T\) and \((A^T)^{-1} = (A^{-1})^T = A^{-T}\) - see
+[[https://en.wikipedia.org/wiki/Transpose#Properties][properties of matrix transpose]]. Considering just this part in code gives:
+
+#+BEGIN_SRC python :session Python :exports both :results output
+  import scipy.linalg.lapack as lapack
+
+  y_minus_mu = y - mu
+
+  L_inv, _ = lapack.dtrtri(L, lower=True)
+  L_inv_y_minus_mu = L_inv @ y_minus_mu
+  L_exponent = L_inv_y_minus_mu.T @ L_inv_y_minus_mu
+
+  Sigma_exponent = y_minus_mu.T @ np.linalg.inv(Sigma) @ y_minus_mu
+
+  print("Sigma exponent = {:0.8f}".format(Sigma_exponent[0, 0]))
+  print("L exponent     = {:0.8f}".format(L_exponent[0, 0]))
+#+END_SRC
+
+#+RESULTS:
+: Sigma exponent = 4.20294853
+: L exponent     = 4.20294853
+
+I wasn't sure what the best way to exploit that \(L\) is lower triangular when
+computing the inverse and had to use the low level lapack wrapper ~trtri~ (see the
+[[https://software.intel.com/en-us/mkl-developer-reference-c-trtri][intel docs]]) anyway, this inverse should be cheaper than inverting \(\Sigma\).
+
+Putting it all together, a cholesky parametrised implementation might look
+something like:
+
+#+BEGIN_SRC python :session Python :exports both :results output
+  def multivariate_normal_cholesky_pdf(y, mu, L):
+      d = np.shape(mu)[0]
+      sqrt_det = np.prod(np.diag(L))
+      two_pi_power = np.power((2.0 * np.pi), d / 2.0)
+      L_inv, _ = lapack.dtrtri(L, lower=True)
+      L_inv_y_minus_mu = L_inv @ (y - mu)
+      exp = np.exp(-0.5 * (L_inv_y_minus_mu.T @ L_inv_y_minus_mu))
+      return 1.0 / (two_pi_power * sqrt_det) * exp
+
+  me_again = multivariate_normal_cholesky_pdf(y, mu, L)[0, 0]
+
+  print("me again:    {:0.8f}".format(me_again))
+  print("scipy again: {:0.8f}".format(scipy))
+#+END_SRC
+
+#+RESULTS:
+: me again:    0.10220544
+: scipy again: 0.10220544
+
+After writing this (which is just a learning exercise) I had a look at the
+[[https://pytorch.org/docs/stable/_modules/torch/distributions/multivariate_normal.html][pytorch implementation]] which mentions something about the "squared Mahalanobis
+distance". I guess that looks like another optimisation you can make which calls
+the lapack function ~trtrs~ (see the [[https://software.intel.com/en-us/mkl-developer-reference-c-trtrs][intel docs]]). I will look into that further
+another time!

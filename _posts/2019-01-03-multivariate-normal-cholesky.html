@@ -8,8 +8,8 @@ tags: [multivariate normal, cholesky]
 <p>
 This post is mainly some notes about linear algebra, the cholesky decomposition,
 and a way of parametrising the multivariate normal which might be more efficient
-in some cases. As you can see at the end, I am pretty sure I am missing at least
-one important step right now.
+in some cases. In general it is best to use existing implementations of stuff
+like this - this post is just a learning exercise.
 </p>
 
 <p>
@@ -196,7 +196,25 @@ A^{-1}\) see <a href="https://en.wikipedia.org/wiki/Invertible_matrix#Other_prop
 
 <p>
 since \((AB)^T = B^T A^T\) and \((A^T)^{-1} = (A^{-1})^T = A^{-T}\) - see
-<a href="https://en.wikipedia.org/wiki/Transpose#Properties">properties of matrix transpose</a>. Considering just this part in code gives:
+<a href="https://en.wikipedia.org/wiki/Transpose#Properties">properties of matrix transpose</a>. This term is the square of the <a href="https://en.wikipedia.org/wiki/Mahalanobis_distance">Mahalanobis
+distance</a>, which I learned from looking at the source code in the <a href="https://pytorch.org/docs/stable/_modules/torch/distributions/multivariate_normal.html">pytorch
+implementation</a>.
+</p>
+
+<p>
+To calculate the \(L^{-1} (y - \mu)\) term, we can use a lapack solver which
+exploits that \(L\) is triangular. The lapack solver <code>dtrtrs</code> finds \(x\) in \(A x
+= b\) exploiting that \(A\) is triangular (see e.g. the <a href="https://software.intel.com/en-us/mkl-developer-reference-c-trtrs">intel docs</a> and <a href="https://www.netlib.org/lapack/lug/node38.html#tabcomplineq2">this
+netlib table</a>), so if we set \(A = L^{-1}\) and \(b = y - \mu\) then it should
+find the solution \(x = L^{-1} (y - \mu)\) since:
+</p>
+
+\begin{equation*}
+L x = (y - \mu) \implies x = L^{-1} (y - \mu)
+\end{equation*}
+
+<p>
+Considering just this part in code gives:
 </p>
 
 <div class="org-src-container">
@@ -204,28 +222,21 @@ since \((AB)^T = B^T A^T\) and \((A^T)^{-1} = (A^{-1})^T = A^{-T}\) - see
 
 <span style="color: #DFAF8F;">y_minus_mu</span> = y - mu
 
-<span style="color: #DFAF8F;">L_inv</span>, <span style="color: #DFAF8F;">_</span> = lapack.dtrtri(L, lower=<span style="color: #BFEBBF;">True</span>)
-<span style="color: #DFAF8F;">L_inv_y_minus_mu</span> = L_inv @ y_minus_mu
-<span style="color: #DFAF8F;">L_exponent</span> = L_inv_y_minus_mu.T @ L_inv_y_minus_mu
+<span style="color: #DFAF8F;">L_inv_y_minus_mu</span>, <span style="color: #DFAF8F;">_</span> = lapack.dtrtrs(L, y_minus_mu, lower=<span style="color: #BFEBBF;">True</span>)
+<span style="color: #DFAF8F;">L_mahalanobis_squared</span> = L_inv_y_minus_mu.T @ L_inv_y_minus_mu
 
-<span style="color: #DFAF8F;">Sigma_exponent</span> = y_minus_mu.T @ np.linalg.inv(Sigma) @ y_minus_mu
+<span style="color: #DFAF8F;">Sigma_mahalanobis_squared</span> = y_minus_mu.T @ np.linalg.inv(Sigma) @ y_minus_mu
 
-<span style="color: #F0DFAF; font-weight: bold;">print</span>(<span style="color: #CC9393;">"Sigma exponent = {:0.8f}"</span>.<span style="color: #DCDCCC; font-weight: bold;">format</span>(Sigma_exponent[0, 0]))
-<span style="color: #F0DFAF; font-weight: bold;">print</span>(<span style="color: #CC9393;">"L exponent     = {:0.8f}"</span>.<span style="color: #DCDCCC; font-weight: bold;">format</span>(L_exponent[0, 0]))
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(<span style="color: #CC9393;">"Sigma mahalanobis^2 = {:0.8f}"</span>.<span style="color: #DCDCCC; font-weight: bold;">format</span>(Sigma_mahalanobis_squared[0, 0]))
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(<span style="color: #CC9393;">"L mahalanobis^2     = {:0.8f}"</span>.<span style="color: #DCDCCC; font-weight: bold;">format</span>(L_mahalanobis_squared[0, 0]))
 </pre>
 </div>
 
 <pre class="example">
-Sigma exponent = 4.20294853
-L exponent     = 4.20294853
+Sigma mahalanobis^2 = 4.20294853
+L mahalanobis^2     = 4.20294853
 
 </pre>
-
-<p>
-I wasn't sure what the best way to exploit that \(L\) is lower triangular when
-computing the inverse and had to use the low level lapack wrapper <code>trtri</code> (see the
-<a href="https://software.intel.com/en-us/mkl-developer-reference-c-trtri">intel docs</a>) anyway, this inverse should be cheaper than inverting \(\Sigma\).
-</p>
 
 <p>
 Putting it all together, a cholesky parametrised implementation might look
@@ -237,10 +248,9 @@ something like:
     <span style="color: #DFAF8F;">d</span> = np.shape(mu)[0]
     <span style="color: #DFAF8F;">sqrt_det</span> = np.prod(np.diag(L))
     <span style="color: #DFAF8F;">two_pi_power</span> = np.power((2.0 * np.pi), d / 2.0)
-    <span style="color: #DFAF8F;">L_inv</span>, <span style="color: #DFAF8F;">_</span> = lapack.dtrtri(L, lower=<span style="color: #BFEBBF;">True</span>)
-    <span style="color: #DFAF8F;">L_inv_y_minus_mu</span> = L_inv @ (y - mu)
-    <span style="color: #DFAF8F;">exp</span> = np.exp(-0.5 * (L_inv_y_minus_mu.T @ L_inv_y_minus_mu))
-    <span style="color: #F0DFAF; font-weight: bold;">return</span> 1.0 / (two_pi_power * sqrt_det) * exp
+    <span style="color: #DFAF8F;">L_inv_y_minus_mu</span>, <span style="color: #DFAF8F;">_</span> = lapack.dtrtrs(L, y - mu, lower=<span style="color: #BFEBBF;">True</span>)
+    <span style="color: #DFAF8F;">mahalanobis_squared</span> = L_inv_y_minus_mu.T @ L_inv_y_minus_mu
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> 1.0 / (two_pi_power * sqrt_det) * np.exp(-0.5 * mahalanobis_squared)
 
 <span style="color: #DFAF8F;">me_again</span> = multivariate_normal_cholesky_pdf(y, mu, L)[0, 0]
 
@@ -256,9 +266,5 @@ scipy again: 0.10220544
 </pre>
 
 <p>
-After writing this (which is just a learning exercise) I had a look at the
-<a href="https://pytorch.org/docs/stable/_modules/torch/distributions/multivariate_normal.html">pytorch implementation</a> which mentions something about the "squared Mahalanobis
-distance". I guess that looks like another optimisation you can make which calls
-the lapack function <code>trtrs</code> (see the <a href="https://software.intel.com/en-us/mkl-developer-reference-c-trtrs">intel docs</a>). I will look into that further
-another time!
+So there we go, we even had a wee look at lapack in the end!
 </p>

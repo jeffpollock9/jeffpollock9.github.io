@@ -9,8 +9,8 @@ tags: [multivariate normal, cholesky]
 
 This post is mainly some notes about linear algebra, the cholesky decomposition,
 and a way of parametrising the multivariate normal which might be more efficient
-in some cases. As you can see at the end, I am pretty sure I am missing at least
-one important step right now.
+in some cases. In general it is best to use existing implementations of stuff
+like this - this post is just a learning exercise.
 
 The multivariate normal covariance matrix \(\Sigma\) is symmetric [[https://en.wikipedia.org/wiki/Positive-definite_matrix#Positive_semidefinite][positive
 semi-definite]] which means that it can be written as:
@@ -165,30 +165,39 @@ A^{-1}\) see [[https://en.wikipedia.org/wiki/Invertible_matrix#Other_properties]
 \end{equation*}
 
 since \((AB)^T = B^T A^T\) and \((A^T)^{-1} = (A^{-1})^T = A^{-T}\) - see
-[[https://en.wikipedia.org/wiki/Transpose#Properties][properties of matrix transpose]]. Considering just this part in code gives:
+[[https://en.wikipedia.org/wiki/Transpose#Properties][properties of matrix transpose]]. This term is the square of the [[https://en.wikipedia.org/wiki/Mahalanobis_distance][Mahalanobis
+distance]], which I learned from looking at the source code in the [[https://pytorch.org/docs/stable/_modules/torch/distributions/multivariate_normal.html][pytorch
+implementation]].
+
+To calculate the \(L^{-1} (y - \mu)\) term, we can use a lapack solver which
+exploits that \(L\) is triangular. The lapack solver ~dtrtrs~ finds \(x\) in \(A x
+= b\) exploiting that \(A\) is triangular (see e.g. the [[https://software.intel.com/en-us/mkl-developer-reference-c-trtrs][intel docs]] and [[https://www.netlib.org/lapack/lug/node38.html#tabcomplineq2][this
+netlib table]]), so if we set \(A = L^{-1}\) and \(b = y - \mu\) then it should
+find the solution \(x = L^{-1} (y - \mu)\) since:
+
+\begin{equation*}
+L x = (y - \mu) \implies x = L^{-1} (y - \mu)
+\end{equation*}
+
+Considering just this part in code gives:
 
 #+BEGIN_SRC python :session Python :exports both :results output
   import scipy.linalg.lapack as lapack
 
   y_minus_mu = y - mu
 
-  L_inv, _ = lapack.dtrtri(L, lower=True)
-  L_inv_y_minus_mu = L_inv @ y_minus_mu
-  L_exponent = L_inv_y_minus_mu.T @ L_inv_y_minus_mu
+  L_inv_y_minus_mu, _ = lapack.dtrtrs(L, y_minus_mu, lower=True)
+  L_mahalanobis_squared = L_inv_y_minus_mu.T @ L_inv_y_minus_mu
 
-  Sigma_exponent = y_minus_mu.T @ np.linalg.inv(Sigma) @ y_minus_mu
+  Sigma_mahalanobis_squared = y_minus_mu.T @ np.linalg.inv(Sigma) @ y_minus_mu
 
-  print("Sigma exponent = {:0.8f}".format(Sigma_exponent[0, 0]))
-  print("L exponent     = {:0.8f}".format(L_exponent[0, 0]))
+  print("Sigma mahalanobis^2 = {:0.8f}".format(Sigma_mahalanobis_squared[0, 0]))
+  print("L mahalanobis^2     = {:0.8f}".format(L_mahalanobis_squared[0, 0]))
 #+END_SRC
 
 #+RESULTS:
-: Sigma exponent = 4.20294853
-: L exponent     = 4.20294853
-
-I wasn't sure what the best way to exploit that \(L\) is lower triangular when
-computing the inverse and had to use the low level lapack wrapper ~trtri~ (see the
-[[https://software.intel.com/en-us/mkl-developer-reference-c-trtri][intel docs]]) anyway, this inverse should be cheaper than inverting \(\Sigma\).
+: Sigma mahalanobis^2 = 4.20294853
+: L mahalanobis^2     = 4.20294853
 
 Putting it all together, a cholesky parametrised implementation might look
 something like:
@@ -198,10 +207,9 @@ something like:
       d = np.shape(mu)[0]
       sqrt_det = np.prod(np.diag(L))
       two_pi_power = np.power((2.0 * np.pi), d / 2.0)
-      L_inv, _ = lapack.dtrtri(L, lower=True)
-      L_inv_y_minus_mu = L_inv @ (y - mu)
-      exp = np.exp(-0.5 * (L_inv_y_minus_mu.T @ L_inv_y_minus_mu))
-      return 1.0 / (two_pi_power * sqrt_det) * exp
+      L_inv_y_minus_mu, _ = lapack.dtrtrs(L, y - mu, lower=True)
+      mahalanobis_squared = L_inv_y_minus_mu.T @ L_inv_y_minus_mu
+      return 1.0 / (two_pi_power * sqrt_det) * np.exp(-0.5 * mahalanobis_squared)
 
   me_again = multivariate_normal_cholesky_pdf(y, mu, L)[0, 0]
 
@@ -213,8 +221,4 @@ something like:
 : me again:    0.10220544
 : scipy again: 0.10220544
 
-After writing this (which is just a learning exercise) I had a look at the
-[[https://pytorch.org/docs/stable/_modules/torch/distributions/multivariate_normal.html][pytorch implementation]] which mentions something about the "squared Mahalanobis
-distance". I guess that looks like another optimisation you can make which calls
-the lapack function ~trtrs~ (see the [[https://software.intel.com/en-us/mkl-developer-reference-c-trtrs][intel docs]]). I will look into that further
-another time!
+So there we go, we even had a wee look at lapack in the end!

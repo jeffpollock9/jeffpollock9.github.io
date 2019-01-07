@@ -1,0 +1,361 @@
+---
+layout: post
+title: "Checking soccer models with PPC"
+permalink: /:title/
+tags: [soccer, rstan]
+---
+
+<p>
+As far as I can think right now, there are two things you typically want to do
+once you have a model and done some corresponding inference:
+</p>
+
+<ol class="org-ol">
+<li>Model comparison</li>
+<li>Model checking</li>
+</ol>
+
+<p>
+The former allows you to evaluate the relative strengths of models and answer
+questions like "should I use this model or that model?". The latter allows you
+to look for problems in your model and helps with answering "is my model any
+good?".
+</p>
+
+<p>
+In this post I am going to focus on the latter, and consider a basic posterior
+predictive checks (PPC).
+</p>
+
+<p>
+I've used a simple model (disclaimer: I already know plenty of things that are
+wrong with it) concerned with predicting the number of goals scored by competing
+soccer teams in the English Premier League during the seasons 2010/2011 -
+2017/2018. The model assumes that the number of goals scored by each team
+follows an independent Poisson distribution with rates dependant on the strength
+of the teams and a home advantage. The data is downloaded in CSV format from
+<a href="http://www.football-data.co.uk/">www.football-data.co.uk</a>.
+</p>
+
+<p>
+I will not discuss the model in more detail than saying that there is an
+"attack" and "defence" parameter for each team, and the model is defined by
+scoring rates of:
+</p>
+
+\begin{align*}
+\log(\lambda_h) &= \alpha + \gamma + att_h - def_a \\
+\log(\lambda_a) &= \alpha + att_a - def_h
+\end{align*}
+
+<p>
+for the home (\(h\)) and away (\(a\)) teams respectively, where \(\alpha\) is an
+intercept term, \(\gamma\) is the home advantage term, \(att_k\) is the
+attacking strength of team \(k\), and \(def_k\) is the defensive strength of
+team \(k\).
+</p>
+
+<p>
+This type of model has been discussed loads, for anyone interested please read
+<a href="https://rss.onlinelibrary.wiley.com/doi/10.1111/1467-9876.00065">Dixon and Coles (1997)</a> which I can't believe is now over 20 years old!
+Incidentally, Stuart Coles (one of the authors of the linked paper) now runs a
+blog - <a href="https://smartodds.blog/">Smartodds Loves Statistics</a> - which is worth a read.
+</p>
+
+<p>
+Anyway, here is the model coded up in stan, plus some prior stuff (nothing
+particularly interesting or informative) that I haven't bothered to discuss
+since it is not the point of this post:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-stan" id="org8ad7e5d"><span style="color: #F0DFAF; font-weight: bold;">data</span> {
+    <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 0&gt; <span style="color: #DFAF8F;">n</span>;
+    <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 0&gt; <span style="color: #DFAF8F;">n_teams</span>;
+    <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 1, <span style="color: #F0DFAF; font-weight: bold;">upper</span> <span style="color: #BFEBBF;">=</span> n_teams&gt; <span style="color: #DFAF8F;">home_team</span>[n];
+    <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 1, <span style="color: #F0DFAF; font-weight: bold;">upper</span> <span style="color: #BFEBBF;">=</span> n_teams&gt; <span style="color: #DFAF8F;">away_team</span>[n];
+    <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 0&gt; <span style="color: #DFAF8F;">home_goals</span>[n];
+    <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 0&gt; <span style="color: #DFAF8F;">away_goals</span>[n];
+}
+
+<span style="color: #F0DFAF; font-weight: bold;">parameters</span> {
+    <span style="color: #7CB8BB;">real</span> <span style="color: #DFAF8F;">alpha</span>;
+    <span style="color: #7CB8BB;">real</span> <span style="color: #DFAF8F;">gamma</span>;
+    <span style="color: #7CB8BB;">vector</span>[n_teams] <span style="color: #DFAF8F;">att</span>;
+    <span style="color: #7CB8BB;">vector</span>[n_teams] <span style="color: #DFAF8F;">def</span>;
+    <span style="color: #7CB8BB;">real</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 0.0&gt; <span style="color: #DFAF8F;">sigma_teams</span>;
+}
+
+<span style="color: #F0DFAF; font-weight: bold;">transformed parameters</span> {
+    <span style="color: #7CB8BB;">vector</span>[n] home_log_rate <span style="color: #BFEBBF;">=</span> alpha + gamma + att[home_team] - def[away_team];
+    <span style="color: #7CB8BB;">vector</span>[n] away_log_rate <span style="color: #BFEBBF;">=</span> alpha + att[away_team] - def[home_team];
+}
+
+<span style="color: #F0DFAF; font-weight: bold;">model</span> {
+    alpha <span style="color: #BFEBBF;">~</span> <span style="color: #93E0E3;">normal</span>(0.0, 1.0);
+    gamma <span style="color: #BFEBBF;">~</span> <span style="color: #93E0E3;">normal</span>(0.0, 1.0);
+    att <span style="color: #BFEBBF;">~</span> <span style="color: #93E0E3;">normal</span>(0.0, sigma_teams);
+    def <span style="color: #BFEBBF;">~</span> <span style="color: #93E0E3;">normal</span>(0.0, sigma_teams);
+    sigma_teams <span style="color: #BFEBBF;">~</span> <span style="color: #93E0E3;">normal</span>(0.0, 1.0);
+
+    home_goals <span style="color: #BFEBBF;">~</span> <span style="color: #93E0E3;">poisson_log</span>(home_log_rate);
+    away_goals <span style="color: #BFEBBF;">~</span> <span style="color: #93E0E3;">poisson_log</span>(away_log_rate);
+}
+
+<span style="color: #F0DFAF; font-weight: bold;">generated quantities</span> {
+    <span style="color: #7CB8BB;">int</span> <span style="color: #DFAF8F;">rep_home_goals</span>[n] <span style="color: #BFEBBF;">=</span> <span style="color: #93E0E3;">poisson_log_rng</span>(home_log_rate);
+    <span style="color: #7CB8BB;">int</span> <span style="color: #DFAF8F;">rep_away_goals</span>[n] <span style="color: #BFEBBF;">=</span> <span style="color: #93E0E3;">poisson_log_rng</span>(away_log_rate);
+}
+
+</pre>
+</div>
+
+<p>
+Let's also have a brief look at the data:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-R"><span style="color: #BFEBBF;">library</span>(readr)
+<span style="color: #BFEBBF;">library</span>(dplyr)
+
+soccer_data <span style="color: #BFEBBF;">&lt;-</span> lapply(10:18, <span style="color: #F0DFAF; font-weight: bold;">function</span>(x) {
+    season <span style="color: #BFEBBF;">&lt;-</span> paste0(x, x + 1)
+    url <span style="color: #BFEBBF;">&lt;-</span> file.path(<span style="color: #CC9393;">"http://www.football-data.co.uk/mmz4281"</span>, season, <span style="color: #CC9393;">"E0.csv"</span>)
+    read_csv(url, col_types = cols())
+}) <span style="color: #BFEBBF;">%&gt;%</span> bind_rows()
+
+soccer_teams <span style="color: #BFEBBF;">&lt;-</span> sort(unique(c(soccer_data$HomeTeam, soccer_data$AwayTeam)))
+
+soccer_data <span style="color: #BFEBBF;">&lt;-</span> soccer_data <span style="color: #BFEBBF;">%&gt;%</span>
+    mutate(home_team = factor(HomeTeam, soccer_teams),
+           away_team = factor(AwayTeam, soccer_teams),
+           home_goals = as.integer(FTHG),
+           away_goals = as.integer(FTAG)) <span style="color: #BFEBBF;">%&gt;%</span>
+    select(matches(<span style="color: #CC9393;">"^home_|^away_"</span>)) <span style="color: #BFEBBF;">%&gt;%</span>
+    filter(complete.cases(.))
+
+print(soccer_data <span style="color: #BFEBBF;">%&gt;%</span> head())
+</pre>
+</div>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">Aston Villa</td>
+<td class="org-left">West Ham</td>
+<td class="org-right">3</td>
+<td class="org-right">0</td>
+</tr>
+
+<tr>
+<td class="org-left">Blackburn</td>
+<td class="org-left">Everton</td>
+<td class="org-right">1</td>
+<td class="org-right">0</td>
+</tr>
+
+<tr>
+<td class="org-left">Bolton</td>
+<td class="org-left">Fulham</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+</tr>
+
+<tr>
+<td class="org-left">Chelsea</td>
+<td class="org-left">West Brom</td>
+<td class="org-right">6</td>
+<td class="org-right">0</td>
+</tr>
+
+<tr>
+<td class="org-left">Sunderland</td>
+<td class="org-left">Birmingham</td>
+<td class="org-right">2</td>
+<td class="org-right">2</td>
+</tr>
+
+<tr>
+<td class="org-left">Tottenham</td>
+<td class="org-left">Man City</td>
+<td class="org-right">0</td>
+<td class="org-right">0</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+All looks good&#x2026; Now we can perform inference:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-R"><span style="color: #BFEBBF;">library</span>(rstan)
+
+<span style="color: #BFEBBF;">options</span>(mc.cores = parallel::detectCores())
+rstan_options(auto_write = <span style="color: #7CB8BB;">TRUE</span>)
+
+NUM_CHAINS <span style="color: #BFEBBF;">&lt;-</span> 3
+NUM_SAMPLES <span style="color: #BFEBBF;">&lt;-</span> 1000
+NUM_WARMUP <span style="color: #BFEBBF;">&lt;-</span> 1000
+
+model <span style="color: #BFEBBF;">&lt;-</span> stan_model(stan_file)
+
+fit <span style="color: #BFEBBF;">&lt;-</span> sampling(model,
+                seed = 666,
+                chains = NUM_CHAINS,
+                warmup = NUM_WARMUP,
+                iter = NUM_WARMUP + NUM_SAMPLES,
+                pars = c(<span style="color: #CC9393;">"home_log_rate"</span>, <span style="color: #CC9393;">"away_log_rate"</span>),
+                include = <span style="color: #7CB8BB;">FALSE</span>,
+                data = list(n = nrow(soccer_data),
+                            n_teams = length(soccer_teams),
+                            home_team = unclass(soccer_data$home_team),
+                            away_team = unclass(soccer_data$away_team),
+                            home_goals = soccer_data$home_goals,
+                            away_goals = soccer_data$away_goals))
+
+</pre>
+</div>
+
+<p>
+It's a bit daunting to look at all that data in a table (i.e. <code>print(fit)</code>) and
+also it doesn't show the team names. Luckily, it is very easy to do some nice
+plots using <a href="http://mc-stan.org/bayesplot/">bayesplot</a> if we transform the <code>fit</code> to an array and rename some of the
+dimensions. Here are the non team specific parameter estimates:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-R"><span style="color: #BFEBBF;">library</span>(bayesplot)
+<span style="color: #BFEBBF;">library</span>(ggplot2)
+
+posterior <span style="color: #BFEBBF;">&lt;-</span> as.array(fit)
+
+nmes <span style="color: #BFEBBF;">&lt;-</span> dimnames(posterior)$parameters
+dimnames(posterior)$parameters[grep(<span style="color: #CC9393;">"^att\\["</span>, nmes)] <span style="color: #BFEBBF;">&lt;-</span> paste0(<span style="color: #CC9393;">"att_"</span>, soccer_teams)
+dimnames(posterior)$parameters[grep(<span style="color: #CC9393;">"^def\\["</span>, nmes)] <span style="color: #BFEBBF;">&lt;-</span> paste0(<span style="color: #CC9393;">"def_"</span>, soccer_teams)
+
+mcmc_pairs(posterior, pars = c(<span style="color: #CC9393;">"alpha"</span>, <span style="color: #CC9393;">"gamma"</span>, <span style="color: #CC9393;">"sigma_teams"</span>))
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/checking-soccer-models-pairs.png" alt="checking-soccer-models-pairs.png" />
+</p>
+</div>
+
+<p>
+The team attack parameters:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-R">mcmc_intervals(posterior, regex_pars = <span style="color: #CC9393;">"^att_"</span>) + xlab(<span style="color: #CC9393;">"Attack"</span>)
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/checking-soccer-models-intervals-att.png" alt="checking-soccer-models-intervals-att.png" />
+</p>
+</div>
+
+<p>
+The team defence parameters:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-R">mcmc_intervals(posterior, regex_pars = <span style="color: #CC9393;">"^def_"</span>) + xlab(<span style="color: #CC9393;">"Defence"</span>)
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/checking-soccer-models-intervals-def.png" alt="checking-soccer-models-intervals-def.png" />
+</p>
+</div>
+
+<p>
+So looks fairly sensible. Great. I also had a look at <a href="http://mc-stan.org/bayesplot/reference/MCMC-nuts.html">Diagnostic plots for the
+No-U-Turn-Sampler</a> and some other things but don't want to clutter this post with
+them.
+</p>
+
+<p>
+The point of this was to consider PPC so here it is. The idea is to generate
+replication datasets drawn from the posterior predictive distribution and see if
+they are consistent with our observed data. The observed data/response is
+typically denoted \(y\) and the simulated replications \(y_{rep}\). This is why
+at the bottom of the <a href="#org8ad7e5d">stan code above</a> we use the <code>generated quantities</code> block to
+simulate home and away goals.
+</p>
+
+<p>
+I'm only going to consider (home team) supremacy here, which is the number of
+goals the home team wins by (e.g. a supremacy of 0 is a draw). It will be
+apparent why afterwards (I hope).
+</p>
+
+<p>
+Unfortunately in doing this I stumbled upon what has now been <a href="https://github.com/stan-dev/bayesplot/issues/172">filled as a bug</a> in
+the bayesplot package. Many thanks to <a href="https://github.com/jgabry">Jonah Gabry</a> for getting back to me about
+it so quickly! Nevertheless I hacked the package (deleted a few lines) and now
+we can look at observed and simulated supremacy:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-R">MAX_SUPREMACY <span style="color: #BFEBBF;">&lt;-</span> 5
+
+<span style="color: #93E0E3;">clamp</span> <span style="color: #BFEBBF;">&lt;-</span> <span style="color: #F0DFAF; font-weight: bold;">function</span>(x) {
+    pmin(pmax(x, -MAX_SUPREMACY), MAX_SUPREMACY)
+}
+
+observed_supremacy <span style="color: #BFEBBF;">&lt;-</span> soccer_data$home_goals - soccer_data$away_goals
+
+rep_home_goals <span style="color: #BFEBBF;">&lt;-</span> posterior[ , , grep(<span style="color: #CC9393;">"^rep_home_goals\\["</span>, nmes)]
+rep_away_goals <span style="color: #BFEBBF;">&lt;-</span> posterior[ , , grep(<span style="color: #CC9393;">"^rep_away_goals\\["</span>, nmes)]
+
+rep_supremacy <span style="color: #BFEBBF;">&lt;-</span> matrix(rep_home_goals - rep_away_goals,
+                        NUM_CHAINS * NUM_SAMPLES,
+                        nrow(soccer_data))
+
+ppc_bars(clamp(observed_supremacy), clamp(rep_supremacy), freq = <span style="color: #7CB8BB;">FALSE</span>) +
+    xlab(<span style="color: #CC9393;">"Supremacy"</span>)
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/checking-soccer-models-supremacy-ppc.png" alt="checking-soccer-models-supremacy-ppc.png" />
+</p>
+</div>
+
+<p>
+So what does that mean? Well, it looks like (as I was hoping for) the model
+underestimates the probability of 0 supremacy (a draw). This has been noted in
+lots of papers and it makes sense - the model assumes independence in the home
+and away goals, or in other words, that the teams just keep playing the same
+throughout the match regardless of the score.
+</p>
+
+<p>
+There are lots of other things to look at too, for example you can consider the
+total number of goals, the number of home/away goals, test statistics like the
+mean or maximum number of goals. It may also be worth considering grouping the
+data by season or league (if I had bothered to use multiple leagues).
+</p>
+
+<p>
+In conclustion, I think PPCs are a really powerful and intuitive way to explore
+models and I hope to see and use more of them where applicable.
+</p>

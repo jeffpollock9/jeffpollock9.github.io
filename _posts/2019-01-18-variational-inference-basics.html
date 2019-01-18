@@ -1,0 +1,231 @@
+---
+layout: post
+title: "Variational inference basics"
+permalink: /:title/
+tags: [variational inference]
+---
+
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#org097fa69">1. Basic maths</a></li>
+<li><a href="#orgce7a121">2. Variational families</a>
+<ul>
+<li><a href="#orgc58db30">2.1. Mean-field Gaussian</a></li>
+<li><a href="#orgdca1309">2.2. Full-rank Gaussian</a></li>
+<li><a href="#org6b17d9f">2.3. Recommendations</a></li>
+</ul>
+</li>
+<li><a href="#org2c74506">3. Conclusions</a></li>
+</ul>
+</div>
+</div>
+
+<p>
+I mentioned in <a href="https://jeffpollock9.github.io/going-NUTS-with-pyro-and-pystan/">a previous post</a> that I would take a look at variational
+inference, so here we go.
+</p>
+
+<div id="outline-container-org097fa69" class="outline-2">
+<h2 id="org097fa69"><span class="section-number-2">1</span> Basic maths</h2>
+<div class="outline-text-2" id="text-1">
+<p>
+Variational inference (VI) is a method for approximate Bayesian inference. One
+might want to use VI instead of MCMC (which less Monte Carlo error provides
+exact inference) when models become complex or datasets become large - as in
+these cases MCMC can take too long. In other words, VI is faster but not as
+accurate.
+</p>
+
+<p>
+A good reference for VI is (in my opinion) <a href="https://arxiv.org/pdf/1601.00670">Blei et al. (2018)</a> which describes
+how a probabilistic model defines the joint distribution of observations \(x\)
+and latent variables \(z\):
+</p>
+
+\begin{equation*}
+p(z, x) = p(z) p(x | z)
+\end{equation*}
+
+<p>
+and that the problem in Bayesian inference is to compute the posterior \(p(z |
+x)\). Rather than using MCMC/sampling to compute this posterior, VI poses the
+problem as an optimisation one.
+</p>
+
+<p>
+As then described in <a href="https://arxiv.org/pdf/1603.00788">Kucukelbir et al. (2016)</a>, consider a family of
+distributions denoted \(q(z | \phi)\) parametrised by vector \(\phi \in \Phi\)
+which approximate \(p(z | x)\), the idea of VI is then to find the best
+approximation of the posterior via:
+</p>
+
+\begin{equation*}
+\phi^* = \underset{\phi \in \Phi}{argmin} KL(q(z | \phi) || p(z | x))
+\end{equation*}
+
+<p>
+i.e. find \(\phi^*\) which minimises the <a href="https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence">Kullback Leibler divergence</a>, which in
+short is an asymmetric measure of the difference in two probability
+distributions.
+</p>
+
+<p>
+Unfortunately, we can't really compute the KL divergence because it involves the
+posterior (the reason we would use MCMC or VI in the first place). Instead, the
+problem is changed to maximising what is known as the evidence lower bound
+(ELBO). Let's see if we can derive it starting from the KL divergence formula on
+<a href="https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence#Definition">wikipedia</a>:
+</p>
+
+\begin{align*}
+KL(q(z | \phi) || p(z | x))
+&= \int_{-\infty}^{\infty} q(z | \phi) \log\left(\frac{q(z | \phi)}{p(z | x)}\right) dz \\
+&= \int_{-\infty}^{\infty} q(z | \phi) \log\left(\frac{q(z | \phi) p(x)}{p(z, x)}\right) dz \\
+&= \int_{-\infty}^{\infty} q(z | \phi) (\log(q(z | \phi)) - \log(p(z, x) + \log(p(x)))) dz \\
+&= \int_{-\infty}^{\infty} q(z | \phi) \log(q(z | \phi) dz - \int_{-\infty}^{\infty} q(z | \phi) \log(p(z, x)) dz + \int_{-\infty}^{\infty} q(z | \phi) \log(p(x)) dz \\
+&= \int_{-\infty}^{\infty} q(z | \phi) \log(q(z | \phi) dz - \int_{-\infty}^{\infty} q(z | \phi) \log(p(z, x)) dz + \log(p(x)) \int_{-\infty}^{\infty} q(z | \phi) dz \\
+&= \mathbb{E}_{q(z | \phi)}(\log(q(z | \phi)) - \mathbb{E}_{q(z | \phi)}(\log(p(z, x))) + \log(p(x)) .
+\end{align*}
+
+<p>
+This shows the dependence on the evidence \(\log(p(x))\) which we can't compute,
+MCMC methods avoid it and VI needs to as well. Instead consider:
+</p>
+
+\begin{align*}
+\log(p(x)) = KL(q(z | \phi) || p(z | x)) + \mathbb{E}_{q(z | \phi)}(\log(p(z, x))) - \mathbb{E}_{q(z | \phi)}(\log(q(z | \phi))
+\end{align*}
+
+<p>
+and note that:
+</p>
+
+\begin{equation*}
+KL(q(z | \phi) || p(z | x)) \geq 0
+\end{equation*}
+
+<p>
+by <a href="https://en.wikipedia.org/wiki/Gibbs%27_inequality">Gibbs' inequality</a>, with equality to 0 when \(q(z | \phi) = p(z | x)\). This
+means if we replace the KL divergence term with 0, we obtain a lower bound for
+the evidence (the ELBO previously mentioned):
+</p>
+
+\begin{align*}
+\log(p(x)) \geq \mathbb{E}_{q(z | \phi)}(\log(p(z, x))) -\mathbb{E}_{q(z | \phi)}(\log(q(z | \phi)) = ELBO(\phi).
+\end{align*}
+
+<p>
+As per <a href="https://arxiv.org/pdf/1601.00670.pdf">Blei et al. (2018)</a>, we can look more closely at the characteristics of
+the ELBO via:
+</p>
+
+\begin{align*}
+ELBO(\phi)
+&= \mathbb{E}_{q(z | \phi)}(\log(p(z, x))) -\mathbb{E}_{q(z | \phi)}(\log(q(z | \phi)) \\
+&= \mathbb{E}_{q(z | \phi)}(\log(p(x | z))) + \mathbb{E}_{q(z | \phi)}(\log(p(z))) - \mathbb{E}_{q(z | \phi)}(\log(q(z | \phi)) \\
+&= \mathbb{E}_{q(z | \phi)}(\log(p(x | z))) - (\mathbb{E}_{q(z | \phi)}(\log(q(z | \phi))) - \mathbb{E}_{q(z | \phi)}(\log(p(z)))) \\
+&= \mathbb{E}_{q(z | \phi)}(\log(p(x | z))) - KL(q(z | \phi) || p(z))
+\end{align*}
+
+<p>
+thus, maximising the ELBO involes \(q(z | \phi)\) placing mass on values of
+\(z\) which give high log likelihood \(p(x | z)\) but not too far from the prior
+\(p(z)\).
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgce7a121" class="outline-2">
+<h2 id="orgce7a121"><span class="section-number-2">2</span> Variational families</h2>
+<div class="outline-text-2" id="text-2">
+<p>
+Now we glance over the two most popular (as far as I know) approximating
+distributions. The former is faster while the latter is able to give a better
+approximation.
+</p>
+</div>
+
+<div id="outline-container-orgc58db30" class="outline-3">
+<h3 id="orgc58db30"><span class="section-number-3">2.1</span> Mean-field Gaussian</h3>
+<div class="outline-text-3" id="text-2-1">
+<p>
+This family approximates the posterior with independent Gaussian factors:
+</p>
+
+\begin{equation*}
+q(z | \phi) = \Pi_{i=1}^m \mathcal{N}(z_i | \mu_i, \sigma_i^2)
+\end{equation*}
+
+<p>
+and so \(\phi = (\mu_1, \ldots, \mu_m, \sigma_1^2, \ldots, \sigma_m^2)\).
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgdca1309" class="outline-3">
+<h3 id="orgdca1309"><span class="section-number-3">2.2</span> Full-rank Gaussian</h3>
+<div class="outline-text-3" id="text-2-2">
+<p>
+This family approximates the posterior with a multivariate Gaussian
+distribution:
+</p>
+
+\begin{equation*}
+q(z | \phi) = \mathcal{N}(z | \mu, \Sigma)
+\end{equation*}
+
+<p>
+with \(\phi = (\mu, \Sigma)\).
+</p>
+</div>
+</div>
+
+<div id="outline-container-org6b17d9f" class="outline-3">
+<h3 id="org6b17d9f"><span class="section-number-3">2.3</span> Recommendations</h3>
+<div class="outline-text-3" id="text-2-3">
+<p>
+Taken from <a href="https://arxiv.org/pdf/1603.00788">Kucukelbir et al. (2016)</a>:
+</p>
+
+<blockquote>
+<p>
+How to choose between full-rank and mean-field ADVI? Scientists interested in
+posterior variances and covariances should use the full-rank
+approximation. Full-rank ADVI captures posterior correlations, in turn producing
+more accurate marginal variance estimates. For large data, however, full-rank
+ADVI can be prohibitively slow.  Scientists interested in prediction should
+initially rely on the mean-field approximation. Mean-field ADVI offers a fast
+algorithm for approximating the posterior mean. In practice, accurate posterior
+mean estimates dominate predictive accuracy; underestimating marginal variances
+matters less.
+</p>
+</blockquote>
+
+<p>
+where ADVI is automatic differentiation variational inference - a method which
+they discuss in their paper.
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org2c74506" class="outline-2">
+<h2 id="org2c74506"><span class="section-number-2">3</span> Conclusions</h2>
+<div class="outline-text-2" id="text-3">
+<p>
+This was just a few of the basic derivations to start VI. The next steps involve
+maximising the ELBO - which is unfortunately not straightforward. Fortunately
+though, there are many general implementations of methods for doing so available
+in <a href="https://mc-stan.org/">stan</a>, <a href="http://pyro.ai/">pyro</a>, and <a href="https://www.tensorflow.org/probability/">tensorflow-probability</a> (although I can't see much
+documentation about how to do it with tensorflow-probability and found <a href="https://github.com/tensorflow/probability/issues/149">this
+issue</a> saying there wasn't any).
+</p>
+
+<p>
+I'm hoping to look over the details of these methods and implementations and see
+how they perform later.
+</p>
+</div>
+</div>

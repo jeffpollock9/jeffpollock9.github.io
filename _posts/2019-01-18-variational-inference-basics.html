@@ -73,10 +73,10 @@ distributions.
 
 <p>
 Unfortunately, we can't really compute the KL divergence because it involves the
-posterior (the reason we would use MCMC or VI in the first place). Instead, the
-problem is changed to maximising what is known as the evidence lower bound
-(ELBO). Let's see if we can derive it starting from the KL divergence formula on
-<a href="https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence#Definition">wikipedia</a>:
+posterior, and if we could compute that then we probably wouldn't be looking to
+sampling or approximate inference methods. Instead, the problem is changed to
+maximising what is known as the evidence lower bound (ELBO). Let's see if we can
+derive it starting from the KL divergence formula on <a href="https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence#Definition">wikipedia</a>:
 </p>
 
 \begin{align*}

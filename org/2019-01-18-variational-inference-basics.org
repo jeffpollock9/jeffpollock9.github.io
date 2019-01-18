@@ -48,10 +48,10 @@ short is an asymmetric measure of the difference in two probability
 distributions.
 
 Unfortunately, we can't really compute the KL divergence because it involves the
-posterior (the reason we would use MCMC or VI in the first place). Instead, the
-problem is changed to maximising what is known as the evidence lower bound
-(ELBO). Let's see if we can derive it starting from the KL divergence formula on
-[[https://en.wikipedia.org/wiki/Kullback%25E2%2580%2593Leibler_divergence#Definition][wikipedia]]:
+posterior, and if we could compute that then we probably wouldn't be looking to
+sampling or approximate inference methods. Instead, the problem is changed to
+maximising what is known as the evidence lower bound (ELBO). Let's see if we can
+derive it starting from the KL divergence formula on [[https://en.wikipedia.org/wiki/Kullback%25E2%2580%2593Leibler_divergence#Definition][wikipedia]]:
 
 \begin{align*}
 KL(q(z | \phi) || p(z | x))

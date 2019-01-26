@@ -1,0 +1,417 @@
+---
+layout: post
+title: "Variational inference with pyro"
+permalink: /:title/
+tags: [variational inference, pyro]
+---
+
+<p>
+In <a href="https://jeffpollock9.github.io/going-NUTS-with-pyro-and-pystan/">going NUTS with pyro and pystan</a> I mentioned that I would like to try variational
+inference algorithms in <a href="http://pyro.ai/">pyro</a>, so here is that attempt. A disclaimer: I am not very
+familiar with pyro or variational inference.
+</p>
+
+<p>
+I'm using the same simple data and model from the NUTS post, and use the mean-field
+Gaussian variational family to approximate the posterior. This can be done easily using
+the <a href="http://docs.pyro.ai/en/0.3.0-release/contrib.autoguide.html?highlight=AutoDiagonalNormal#autodiagonalnormal">AutoDiagonalNormal</a> class to specify the "guide".
+</p>
+
+<p>
+I'm not sure of all details of what pyro is doing behind the scenes, but you can see
+that the <a href="http://docs.pyro.ai/en/0.3.0-release/inference_algos.html#module-pyro.infer.elbo">ELBO</a> classes use sampling to approximate the ELBO value/gradient. This sampling
+is required to calculate expectations with respect to the variational distribution, and
+I was shocked to hear that the default of 1 sample is usually enough for this algorithm!
+</p>
+
+<p>
+Anyway, using <a href="http://docs.pyro.ai/en/0.3.0-release/optimization.html?highlight=adam#pyro.optim.pytorch_optimizers.Adam">Adam</a> to minimise the ELBO loss (the -ve ELBO I guess?) looks something
+like this:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> torch
+<span style="color: #F0DFAF; font-weight: bold;">import</span> pyro
+<span style="color: #F0DFAF; font-weight: bold;">import</span> pyro.optim
+<span style="color: #F0DFAF; font-weight: bold;">import</span> pyro.infer
+<span style="color: #F0DFAF; font-weight: bold;">import</span> pyro.distributions <span style="color: #F0DFAF; font-weight: bold;">as</span> dist
+<span style="color: #F0DFAF; font-weight: bold;">import</span> pyro.contrib.autoguide <span style="color: #F0DFAF; font-weight: bold;">as</span> autoguide
+<span style="color: #F0DFAF; font-weight: bold;">import</span> numpy <span style="color: #F0DFAF; font-weight: bold;">as</span> np
+<span style="color: #F0DFAF; font-weight: bold;">import</span> time <span style="color: #F0DFAF; font-weight: bold;">as</span> tm
+
+pyro.set_rng_seed(42)
+
+<span style="color: #DFAF8F;">N</span> = 2500
+<span style="color: #DFAF8F;">P</span> = 8
+<span style="color: #DFAF8F;">LEARNING_RATE</span> = 1e-2
+<span style="color: #DFAF8F;">NUM_STEPS</span> = 30000
+<span style="color: #DFAF8F;">NUM_SAMPLES</span> = 3000
+
+<span style="color: #DFAF8F;">alpha_true</span> = dist.Normal(42.0, 10.0).sample()
+<span style="color: #DFAF8F;">beta_true</span> = dist.Normal(torch.zeros(P), 10.0).sample()
+<span style="color: #DFAF8F;">sigma_true</span> = dist.Exponential(1.0).sample()
+
+<span style="color: #DFAF8F;">eps</span> = dist.Normal(0.0, sigma_true).sample([N])
+<span style="color: #DFAF8F;">x</span> = torch.randn(N, P)
+<span style="color: #DFAF8F;">y</span> = alpha_true + x @ beta_true + eps
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">model</span>(x, y):
+    <span style="color: #DFAF8F;">alpha</span> = pyro.sample(<span style="color: #CC9393;">"alpha"</span>, dist.Normal(0.0, 100.0))
+    <span style="color: #DFAF8F;">beta</span> = pyro.sample(<span style="color: #CC9393;">"beta"</span>, dist.Normal(torch.zeros(P), 10.0))
+    <span style="color: #DFAF8F;">sigma</span> = pyro.sample(<span style="color: #CC9393;">"sigma"</span>, dist.HalfNormal(10.0))
+    <span style="color: #DFAF8F;">mu</span> = alpha + x @ beta
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> pyro.sample(<span style="color: #CC9393;">"y"</span>, dist.Normal(mu, sigma), obs=y)
+
+
+<span style="color: #DFAF8F;">guide</span> = autoguide.AutoDiagonalNormal(model)
+<span style="color: #DFAF8F;">optimiser</span> = pyro.optim.Adam({<span style="color: #CC9393;">"lr"</span>: LEARNING_RATE})
+<span style="color: #DFAF8F;">loss</span> = pyro.infer.JitTraceGraph_ELBO()
+<span style="color: #DFAF8F;">svi</span> = pyro.infer.SVI(model, guide, optimiser, loss, num_samples=NUM_SAMPLES)
+
+<span style="color: #DFAF8F;">losses</span> = np.empty(NUM_STEPS)
+
+pyro.clear_param_store()
+
+<span style="color: #DFAF8F;">start</span> = tm.time()
+
+<span style="color: #F0DFAF; font-weight: bold;">for</span> step <span style="color: #F0DFAF; font-weight: bold;">in</span> <span style="color: #DCDCCC; font-weight: bold;">range</span>(NUM_STEPS):
+    <span style="color: #DFAF8F;">losses</span>[step] = svi.step(x, y)
+    <span style="color: #F0DFAF; font-weight: bold;">if</span> step % 5000 == 0:
+        <span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"step: {step:&gt;5}, ELBO loss: {losses[step]:.2f}"</span>)
+
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"\nfinished in {tm.time() - start:.2f} seconds"</span>)
+</pre>
+</div>
+
+<pre class="example">
+step:     0, ELBO loss: 491999392.00
+step:  5000, ELBO loss: 67168.64
+step: 10000, ELBO loss: 26577.41
+step: 15000, ELBO loss: 25676.19
+step: 20000, ELBO loss: -1559.03
+step: 25000, ELBO loss: -1665.76
+
+finished in 48.57 seconds
+
+</pre>
+
+<p>
+I had no idea what values to use for the learning rate or the number of steps, but it
+does appear to converge as we can see in the following plots of all the ELBO estimates
+and the last 1,000 respectively:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> matplotlib.pyplot <span style="color: #F0DFAF; font-weight: bold;">as</span> plt
+
+plt.plot(losses)
+plt.xlabel(<span style="color: #CC9393;">"step"</span>)
+plt.ylabel(<span style="color: #CC9393;">"ELBO loss"</span>)
+plt.savefig(<span style="color: #CC9393;">"../img/pyro-elbo.png"</span>)
+plt.close()
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/pyro-elbo.png" alt="pyro-elbo.png" />
+</p>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-python">plt.plot(losses[-1000:])
+plt.xlabel(<span style="color: #CC9393;">"step"</span>)
+plt.ylabel(<span style="color: #CC9393;">"ELBO loss"</span>)
+plt.savefig(<span style="color: #CC9393;">"../img/pyro-elbo-last-1000.png"</span>)
+plt.close()
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/pyro-elbo-last-1000.png" alt="pyro-elbo-last-1000.png" />
+</p>
+</div>
+
+<p>
+The variational parameters (the means and the standard deviations of the factored
+Gaussians) end up getting stored in the <a href="http://docs.pyro.ai/en/0.3.0-release/parameters.html?highlight=param%20store">"param store"</a> and look this this:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">for</span> key, value <span style="color: #F0DFAF; font-weight: bold;">in</span> pyro.get_param_store().items():    
+    <span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"{key}:\n{value}\n"</span>)
+</pre>
+</div>
+
+<pre class="example">
+auto_loc:
+tensor([ 45.3708,   1.2963,   2.3403,   2.3069, -11.2269,  -1.8563,  22.0911,
+         -6.3839,   4.6192,  -1.7879], requires_grad=True)
+
+auto_scale:
+tensor([0.0038, 0.0032, 0.0038, 0.0038, 0.0033, 0.0034, 0.0031, 0.0032, 0.0032,
+        0.0145], grad_fn=&lt;AddBackward0&gt;)
+
+</pre>
+
+<p>
+So for example our posterior estimate of the <code>alpha</code> parameter is \(\mathcal{N}(45.37,
+0.0038^2)\) (I believe the parameters appear in the order they were defined in the <code>model</code>
+code). This is fine for all of the parameters less <code>sigma</code> which has a half-normal prior
+to ensure it is positive. As far as I can tell pyro automatically takes care of this for
+us by actually placing the variational approximation over <code>log(sigma)</code>. This means that
+our posterior approximation of <code>sigma</code> is actually <a href="https://en.wikipedia.org/wiki/Log-normal_distribution">log-normal</a>.
+</p>
+
+<p>
+You don't really need to do this for the model used here, but to see the approximated
+posterior in the same way as we did with NUTS, we can take samples from the variational
+distribution and transform them accordingly (in this case only exponentiating the
+<code>log(sigma)</code> samples):
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> arviz <span style="color: #F0DFAF; font-weight: bold;">as</span> az
+
+<span style="color: #DFAF8F;">posterior</span> = svi.run(x, y)
+<span style="color: #DFAF8F;">support</span> = posterior.marginal([<span style="color: #CC9393;">"alpha"</span>, <span style="color: #CC9393;">"beta"</span>, <span style="color: #CC9393;">"sigma"</span>]).support()
+
+<span style="color: #DFAF8F;">data_dict</span> = {k: np.expand_dims(v.detach().numpy(), 0) <span style="color: #F0DFAF; font-weight: bold;">for</span> k, v <span style="color: #F0DFAF; font-weight: bold;">in</span> support.items()}
+<span style="color: #DFAF8F;">data</span> = az.dict_to_dataset(data_dict)
+<span style="color: #DFAF8F;">summary</span> = az.summary(data, round_to=4)[[<span style="color: #CC9393;">"mean"</span>, <span style="color: #CC9393;">"sd"</span>]]
+
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(summary)
+</pre>
+</div>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">&#xa0;</th>
+<th scope="col" class="org-right">mean</th>
+<th scope="col" class="org-right">sd</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">alpha</td>
+<td class="org-right">45.3709</td>
+<td class="org-right">0.0038</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[0]</td>
+<td class="org-right">1.2963</td>
+<td class="org-right">0.0032</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[1]</td>
+<td class="org-right">2.3403</td>
+<td class="org-right">0.0038</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[2]</td>
+<td class="org-right">2.3068</td>
+<td class="org-right">0.0038</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[3]</td>
+<td class="org-right">-11.227</td>
+<td class="org-right">0.0033</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[4]</td>
+<td class="org-right">-1.8562</td>
+<td class="org-right">0.0034</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[5]</td>
+<td class="org-right">22.0912</td>
+<td class="org-right">0.0031</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[6]</td>
+<td class="org-right">-6.3839</td>
+<td class="org-right">0.0031</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[7]</td>
+<td class="org-right">4.6194</td>
+<td class="org-right">0.0032</td>
+</tr>
+
+<tr>
+<td class="org-left">sigma</td>
+<td class="org-right">0.1673</td>
+<td class="org-right">0.0024</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+Which we can compare to the true parameters:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> pandas <span style="color: #F0DFAF; font-weight: bold;">as</span> pd
+
+<span style="color: #DFAF8F;">true_values</span> = torch.cat([alpha_true.reshape(-1), beta_true, sigma_true.reshape(-1)])
+<span style="color: #DFAF8F;">true_names</span> = [<span style="color: #CC9393;">"alpha"</span>, *[f<span style="color: #CC9393;">"beta[{i}]"</span> <span style="color: #F0DFAF; font-weight: bold;">for</span> i <span style="color: #F0DFAF; font-weight: bold;">in</span> <span style="color: #DCDCCC; font-weight: bold;">range</span>(P)], <span style="color: #CC9393;">"sigma"</span>]
+<span style="color: #DFAF8F;">true_dict</span> = {<span style="color: #CC9393;">"names"</span>: true_names, <span style="color: #CC9393;">"values"</span>: true_values}
+<span style="color: #DFAF8F;">true_data</span> = pd.DataFrame(true_dict).set_index(<span style="color: #CC9393;">"names"</span>)
+
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(true_data.<span style="color: #DCDCCC; font-weight: bold;">round</span>(4))
+</pre>
+</div>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-right" />
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">names</th>
+<th scope="col" class="org-right">values</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">alpha</td>
+<td class="org-right">45.3669</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[0]</td>
+<td class="org-right">1.2881</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[1]</td>
+<td class="org-right">2.3446</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[2]</td>
+<td class="org-right">2.3033</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[3]</td>
+<td class="org-right">-11.2286</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[4]</td>
+<td class="org-right">-1.8633</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[5]</td>
+<td class="org-right">22.082</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[6]</td>
+<td class="org-right">-6.38</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[7]</td>
+<td class="org-right">4.6166</td>
+</tr>
+
+<tr>
+<td class="org-left">sigma</td>
+<td class="org-right">0.1709</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+Looks like it all works!
+</p>
+
+<p>
+Finally, to check I actually understand at least some of this, I re-ran using a larger
+number of samples in the ELBO calculation. I had to drastically reduce the number of
+steps as the extra samples seems to have a big affect on the run time:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #DFAF8F;">ELBO_SAMPLES</span> = 100
+<span style="color: #DFAF8F;">NUM_STEPS</span> = 300
+
+<span style="color: #DFAF8F;">guide</span> = autoguide.AutoDiagonalNormal(model)
+<span style="color: #DFAF8F;">optimiser</span> = pyro.optim.Adam({<span style="color: #CC9393;">"lr"</span>: LEARNING_RATE})
+<span style="color: #DFAF8F;">loss</span> = pyro.infer.JitTraceGraph_ELBO(ELBO_SAMPLES)
+<span style="color: #DFAF8F;">svi</span> = pyro.infer.SVI(model, guide, optimiser, loss)
+
+<span style="color: #DFAF8F;">losses2</span> = np.empty(NUM_STEPS)
+
+pyro.clear_param_store()
+
+<span style="color: #DFAF8F;">start</span> = tm.time()
+
+<span style="color: #F0DFAF; font-weight: bold;">for</span> step <span style="color: #F0DFAF; font-weight: bold;">in</span> <span style="color: #DCDCCC; font-weight: bold;">range</span>(NUM_STEPS):
+    <span style="color: #DFAF8F;">losses2</span>[step] = svi.step(x, y)
+    <span style="color: #F0DFAF; font-weight: bold;">if</span> step % 50 == 0:
+        <span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"step: {step:&gt;5}, ELBO loss: {losses[step]:.2f}"</span>)
+
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"\nfinished in {tm.time() - start:.2f} seconds"</span>)
+</pre>
+</div>
+
+<pre class="example">
+step:     0, ELBO loss: 491999392.00
+step:    50, ELBO loss: 194320.78
+step:   100, ELBO loss: 6862703.00
+step:   150, ELBO loss: 617908.38
+step:   200, ELBO loss: 456152.75
+step:   250, ELBO loss: 741880.94
+
+finished in 52.14 seconds
+
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-python">plt.plot(losses[:NUM_STEPS], label=<span style="color: #CC9393;">"1 elbo sample"</span>)
+plt.plot(losses2, label = f<span style="color: #CC9393;">"{ELBO_SAMPLES} elbo samples"</span>)
+plt.xlabel(<span style="color: #CC9393;">"step"</span>)
+plt.ylabel(<span style="color: #CC9393;">"ELBO loss"</span>)
+plt.legend()
+plt.savefig(<span style="color: #CC9393;">"../img/pyro-elbo-samples-last-1000.png"</span>)
+plt.close()
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/pyro-elbo-samples-last-1000.png" alt="pyro-elbo-samples-last-1000.png" />
+</p>
+</div>
+
+<p>
+So looks as we'd expect - with more samples the estimate has less noise.
+</p>

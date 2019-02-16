@@ -1,0 +1,23 @@
+#+BEGIN_EXPORT html
+---
+layout: post
+title: "Helpful command line tools"
+permalink: /:title/
+tags: [linux]
+---
+#+END_EXPORT
+
+[[../img/command-line-tools.gif]]
+
+If you spend a lot of time at the command prompt then a few tools can really help your
+productivity, here are some which I like to use:
+
+1. [[https://github.com/gnunn1/tilix][tilix]] is a terminal emulator which is very easy to setup and customise.
+2. [[https://github.com/riobard/bash-powerline][bash-powerline]] adds some git information to the command line prompt.
+3. [[https://github.com/ogham/exa][exa]] is a replacement for ~ls~ (which I alias to ~la~) which looks a lot better
+4. [[https://github.com/junegunn/fzf][fzf]] is a replacement for ~ctrl + r~ which reverse searches your command line history
+   (and much more!).
+5. [[https://github.com/ggreer/the_silver_searcher][ag]] is a super fast searching tool, which I use all the time instead of recursive
+   grep.
+6. [[https://github.com/hishamhm/htop][htop]] is a much better looking version of ~top~.
+7. [[https://github.com/Syllo/nvtop][nvtop]] is like htop but for monitoring nvidia GPUs

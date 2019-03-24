@@ -1,0 +1,255 @@
+#+BEGIN_EXPORT html
+---
+layout: post
+title: "Maximum likelihood estimation with tensorflow probability and pystan"
+permalink: /:title/
+tags: [tensorflow, pystan]
+---
+#+END_EXPORT
+
+I'm quite excited about [[https://www.tensorflow.org/alpha][tensorflow 2]] and have been using the alpha quite a lot
+recently. I'm also really enjoying a lot of the functionallity in [[https://www.tensorflow.org/probability][tensorflow probability]]
+which I show a little of here. I installed both of these via:
+
+#+BEGIN_SRC shell :eval no
+pip install tensorflow-gpu==2.0.0-alpha tfp-nightly
+#+END_SRC
+
+In this example I use [[https://en.wikipedia.org/wiki/Limited-memory_BFGS][LBFGS]] to find maximum likelihood estimates in a fairly big
+logistic regression with 1 million observations and 250 predictors. It's really easy to
+do in tensorflow and in stan, the only difference here is the execution time, and the
+gap in this (contrived) example is pretty large. Perhaps when [[https://discourse.mc-stan.org/t/stan-on-the-gpu/326][stan on the GPU]] becomes
+available it will close the gap. It's also worth remembering that the optimization
+stopping criteria may be different in stan and tensorflow-probability.
+
+Anyway, here's the data generation and the tensorflow version:
+
+#+BEGIN_SRC python :session tf :results none :exports code
+  import tensorflow_probability as tfp
+  import tensorflow as tf
+  import time as tm
+
+  tfd = tfp.distributions
+
+  N = 1_000_000
+  P = 250
+
+
+  def loss(par, x, y):
+      alpha = par[0]
+      beta = tf.expand_dims(par[1:], 1)
+      dist = tfd.Bernoulli(alpha + x @ beta)
+      return -tf.reduce_sum(dist.log_prob(y))
+
+
+  @tf.function
+  def loss_and_gradient(par, x, y):
+      return tfp.math.value_and_gradient(lambda par: loss(par, x, y), par)
+
+
+  def fit(x, y):
+      init = tf.zeros(tf.shape(x)[1] + 1)
+      opt = tfp.optimizer.lbfgs_minimize(
+          lambda par: loss_and_gradient(par, x, y), init, max_iterations=1000
+      )
+      return opt
+
+
+  tf.random.set_seed(123)
+
+  alpha_true = tfd.Normal(0.666, 1.0).sample()
+  beta_true = tfd.Normal(0.0, 3.14).sample([P, 1])
+
+  x = tfd.Normal(0.0, 1.0).sample([N, P])
+  y = tfd.Bernoulli(alpha_true + x @ beta_true).sample()
+
+  start = tm.time()
+  mle = fit(x, y)
+  end = tm.time()
+#+END_SRC
+
+#+BEGIN_SRC python :session tf :results output :exports both
+  print(f"tensorflow took: {end - start:.4f} seconds")
+  print(f"converged: {mle.converged}")
+  print(f"iterations: {mle.num_iterations}")
+#+END_SRC
+
+#+RESULTS:
+: tensorflow took: 6.9591 seconds
+: converged: True
+: iterations: 27
+
+Here's the stan version:
+
+#+NAME: stan-file
+#+BEGIN_SRC stan :file misc/maximum-likelihood-estimation-with-tensorflow-probability-and-pystan.stan
+  data {
+      int<lower = 0> N;
+      int<lower = 0> P;
+      matrix[N, P] x;
+      int<lower = 0, upper = 1> y[N];
+  }
+
+  parameters {
+      real alpha;
+      vector[P] beta;
+  }
+
+  model {
+      y ~ bernoulli_logit(alpha + x * beta);
+  }
+#+END_SRC
+
+#+RESULTS: stan-file
+[[file:misc/maximum-likelihood-estimation-with-tensorflow-probability-and-pystan.stan]]
+
+#+BEGIN_SRC python :session tf :var stan_file=stan-file :results none
+  import pystan
+
+  stan_model = pystan.StanModel(stan_file, extra_compile_args=["-O3", "-march=native"])
+  stan_data = {"N": N, "P": P, "x": x.numpy(), "y": y[:, 0].numpy()}
+
+  start = tm.time()
+  stan_mle = stan_model.optimizing(stan_data, init="0")
+  end = tm.time()
+#+END_SRC
+
+#+BEGIN_SRC python :session tf :results output :exports both
+  print(f"stan took: {end - start:.4f} seconds")
+#+END_SRC
+
+#+RESULTS:
+: stan took: 100.3003 seconds
+
+Finally, let's check the results:
+
+#+BEGIN_SRC python :session tf :results none :exports code
+  import pandas as pd
+  import numpy as np
+
+  true_vector = np.concatenate(
+      [np.expand_dims(alpha_true.numpy(), 0), np.squeeze(beta_true.numpy())], 0
+  )
+
+  stan_vector = np.concatenate(
+      [np.expand_dims(stan_mle["alpha"], 0), stan_mle["beta"]], 0
+  )
+
+  results = pd.DataFrame(
+      {"true": true_vector, "tf2": mle.position, "stan": stan_vector},
+      index=["alpha", *[f"beta[{i}]" for i in range(P)]],
+  )
+
+  results.head(10).round(4)
+#+END_SRC
+
+#+BEGIN_SRC python :session tf :results raw :exports results
+  import tabulate as tb
+  tb.tabulate(results.head(10).round(6), headers="keys", tablefmt="orgtbl")
+#+END_SRC
+
+#+RESULTS:
+|         |      true |       tf2 |      stan |
+|---------+-----------+-----------+-----------|
+| alpha   | -0.232084 | -0.227752 |  -0.22775 |
+| beta[0] |   1.06369 |   1.06159 |   1.06159 |
+| beta[1] |   1.08326 |   1.09081 |   1.09081 |
+| beta[2] |  -2.07422 |  -2.06481 |  -2.06481 |
+| beta[3] | -0.896468 | -0.908332 | -0.908334 |
+| beta[4] |   1.37697 |   1.35268 |   1.35268 |
+| beta[5] |   2.60261 |   2.62698 |   2.62698 |
+| beta[6] |  -1.68278 |  -1.66754 |  -1.66755 |
+| beta[7] |  -1.68099 |  -1.68325 |  -1.68325 |
+| beta[8] |  -3.24181 |   -3.2511 |   -3.2511 |
+
+So all looks good! I did get quite a few odd tensorflow warnings doing this, so will
+investigate further... I'm also not sure about where to place ~@tf.function~, putting it
+on the ~fit~ function actually makes exectution time nearly double!
+
+My CPU details:
+
+#+BEGIN_SRC shell :results output :exports results
+lscpu | grep -v Flags
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Architecture:        x86_64
+CPU op-mode(s):      32-bit, 64-bit
+Byte Order:          Little Endian
+CPU(s):              12
+On-line CPU(s) list: 0-11
+Thread(s) per core:  2
+Core(s) per socket:  6
+Socket(s):           1
+NUMA node(s):        1
+Vendor ID:           GenuineIntel
+CPU family:          6
+Model:               158
+Model name:          Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz
+Stepping:            10
+CPU MHz:             3489.722
+CPU max MHz:         4100.0000
+CPU min MHz:         800.0000
+BogoMIPS:            4416.00
+Virtualisation:      VT-x
+L1d cache:           32K
+L1i cache:           32K
+L2 cache:            256K
+L3 cache:            9216K
+NUMA node0 CPU(s):   0-11
+#+end_example
+
+and GPU details:
+
+#+BEGIN_SRC shell :results output :exports results
+cd /usr/local/cuda/extras/demo_suite && ./deviceQuery
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+./deviceQuery Starting...
+
+ CUDA Device Query (Runtime API) version (CUDART static linking)
+
+Detected 1 CUDA Capable device(s)
+
+Device 0: "GeForce GTX 1060"
+  CUDA Driver Version / Runtime Version          10.0 / 10.0
+  CUDA Capability Major/Minor version number:    6.1
+  Total amount of global memory:                 6078 MBytes (6373572608 bytes)
+  (10) Multiprocessors, (128) CUDA Cores/MP:     1280 CUDA Cores
+  GPU Max Clock rate:                            1671 MHz (1.67 GHz)
+  Memory Clock rate:                             4004 Mhz
+  Memory Bus Width:                              192-bit
+  L2 Cache Size:                                 1572864 bytes
+  Maximum Texture Dimension Size (x,y,z)         1D=(131072), 2D=(131072, 65536), 3D=(16384, 16384, 16384)
+  Maximum Layered 1D Texture Size, (num) layers  1D=(32768), 2048 layers
+  Maximum Layered 2D Texture Size, (num) layers  2D=(32768, 32768), 2048 layers
+  Total amount of constant memory:               65536 bytes
+  Total amount of shared memory per block:       49152 bytes
+  Total number of registers available per block: 65536
+  Warp size:                                     32
+  Maximum number of threads per multiprocessor:  2048
+  Maximum number of threads per block:           1024
+  Max dimension size of a thread block (x,y,z): (1024, 1024, 64)
+  Max dimension size of a grid size    (x,y,z): (2147483647, 65535, 65535)
+  Maximum memory pitch:                          2147483647 bytes
+  Texture alignment:                             512 bytes
+  Concurrent copy and kernel execution:          Yes with 2 copy engine(s)
+  Run time limit on kernels:                     Yes
+  Integrated GPU sharing Host Memory:            No
+  Support host page-locked memory mapping:       Yes
+  Alignment requirement for Surfaces:            Yes
+  Device has ECC support:                        Disabled
+  Device supports Unified Addressing (UVA):      Yes
+  Device supports Compute Preemption:            Yes
+  Supports Cooperative Kernel Launch:            Yes
+  Supports MultiDevice Co-op Kernel Launch:      Yes
+  Device PCI Domain ID / Bus ID / location ID:   0 / 1 / 0
+  Compute Mode:
+     < Default (multiple host threads can use ::cudaSetDevice() with device simultaneously) >
+
+deviceQuery, CUDA Driver = CUDART, CUDA Driver Version = 10.0, CUDA Runtime Version = 10.0, NumDevs = 1, Device0 = GeForce GTX 1060
+Result = PASS
+#+end_example

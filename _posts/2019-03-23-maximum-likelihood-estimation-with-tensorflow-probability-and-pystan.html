@@ -1,0 +1,340 @@
+---
+layout: post
+title: "Maximum likelihood estimation with tensorflow probability and pystan"
+permalink: /:title/
+tags: [tensorflow, pystan]
+---
+
+<p>
+I'm quite excited about <a href="https://www.tensorflow.org/alpha">tensorflow 2</a> and have been using the alpha quite a lot
+recently. I'm also really enjoying a lot of the functionallity in <a href="https://www.tensorflow.org/probability">tensorflow probability</a>
+which I show a little of here. I installed both of these via:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-shell">pip install tensorflow-gpu==2.0.0-alpha tfp-nightly
+</pre>
+</div>
+
+<p>
+In this example I use <a href="https://en.wikipedia.org/wiki/Limited-memory_BFGS">LBFGS</a> to find maximum likelihood estimates in a fairly big
+logistic regression with 1 million observations and 250 predictors. It's really easy to
+do in tensorflow and in stan, the only difference here is the execution time, and the
+gap in this (contrived) example is pretty large. Perhaps when <a href="https://discourse.mc-stan.org/t/stan-on-the-gpu/326">stan on the GPU</a> becomes
+available it will close the gap. It's also worth remembering that the optimization
+stopping criteria may be different in stan and tensorflow-probability.
+</p>
+
+<p>
+Anyway, here's the data generation and the tensorflow version:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> tensorflow_probability <span style="color: #F0DFAF; font-weight: bold;">as</span> tfp
+<span style="color: #F0DFAF; font-weight: bold;">import</span> tensorflow <span style="color: #F0DFAF; font-weight: bold;">as</span> tf
+<span style="color: #F0DFAF; font-weight: bold;">import</span> time <span style="color: #F0DFAF; font-weight: bold;">as</span> tm
+
+<span style="color: #DFAF8F;">tfd</span> = tfp.distributions
+
+<span style="color: #DFAF8F;">N</span> = 1_000_000
+<span style="color: #DFAF8F;">P</span> = 250
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">loss</span>(par, x, y):
+    <span style="color: #DFAF8F;">alpha</span> = par[0]
+    <span style="color: #DFAF8F;">beta</span> = tf.expand_dims(par[1:], 1)
+    <span style="color: #DFAF8F;">dist</span> = tfd.Bernoulli(alpha + x @ beta)
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> -tf.reduce_sum(dist.log_prob(y))
+
+
+<span style="color: #7CB8BB;">@tf.function</span>
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">loss_and_gradient</span>(par, x, y):
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> tfp.math.value_and_gradient(<span style="color: #F0DFAF; font-weight: bold;">lambda</span> par: loss(par, x, y), par)
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">fit</span>(x, y):
+    <span style="color: #DFAF8F;">init</span> = tf.zeros(tf.shape(x)[1] + 1)
+    <span style="color: #DFAF8F;">opt</span> = tfp.optimizer.lbfgs_minimize(
+        <span style="color: #F0DFAF; font-weight: bold;">lambda</span> par: loss_and_gradient(par, x, y), init, max_iterations=1000
+    )
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> opt
+
+
+tf.random.set_seed(123)
+
+<span style="color: #DFAF8F;">alpha_true</span> = tfd.Normal(0.666, 1.0).sample()
+<span style="color: #DFAF8F;">beta_true</span> = tfd.Normal(0.0, 3.14).sample([P, 1])
+
+<span style="color: #DFAF8F;">x</span> = tfd.Normal(0.0, 1.0).sample([N, P])
+<span style="color: #DFAF8F;">y</span> = tfd.Bernoulli(alpha_true + x @ beta_true).sample()
+
+<span style="color: #DFAF8F;">start</span> = tm.time()
+<span style="color: #DFAF8F;">mle</span> = fit(x, y)
+<span style="color: #DFAF8F;">end</span> = tm.time()
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"tensorflow took: {end - start:.4f} seconds"</span>)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"converged: {mle.converged}"</span>)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"iterations: {mle.num_iterations}"</span>)
+</pre>
+</div>
+
+<pre class="example">
+tensorflow took: 7.3979 seconds
+converged: True
+iterations: 27
+
+</pre>
+
+<p>
+Here's the stan version:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-stan" id="org9eb02b4"><span style="color: #F0DFAF; font-weight: bold;">data</span> {
+    <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 0&gt; <span style="color: #DFAF8F;">N</span>;
+    <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 0&gt; <span style="color: #DFAF8F;">P</span>;
+    <span style="color: #7CB8BB;">matrix</span>[N, P] <span style="color: #DFAF8F;">x</span>;
+    <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 0, <span style="color: #F0DFAF; font-weight: bold;">upper</span> <span style="color: #BFEBBF;">=</span> 1&gt; <span style="color: #DFAF8F;">y</span>[N];
+}
+
+<span style="color: #F0DFAF; font-weight: bold;">parameters</span> {
+    <span style="color: #7CB8BB;">real</span> <span style="color: #DFAF8F;">alpha</span>;
+    <span style="color: #7CB8BB;">vector</span>[P] <span style="color: #DFAF8F;">beta</span>;
+}
+
+<span style="color: #F0DFAF; font-weight: bold;">model</span> {
+    y <span style="color: #BFEBBF;">~</span> <span style="color: #93E0E3;">bernoulli_logit</span>(alpha + x * beta);
+}
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> pystan
+
+<span style="color: #DFAF8F;">stan_model</span> = pystan.StanModel(stan_file, extra_compile_args=[<span style="color: #CC9393;">"-O3"</span>, <span style="color: #CC9393;">"-march=native"</span>])
+<span style="color: #DFAF8F;">stan_data</span> = {<span style="color: #CC9393;">"N"</span>: N, <span style="color: #CC9393;">"P"</span>: P, <span style="color: #CC9393;">"x"</span>: x.numpy(), <span style="color: #CC9393;">"y"</span>: y[:, 0].numpy()}
+
+<span style="color: #DFAF8F;">start</span> = tm.time()
+<span style="color: #DFAF8F;">stan_mle</span> = stan_model.optimizing(stan_data, init=<span style="color: #CC9393;">"0"</span>)
+<span style="color: #DFAF8F;">end</span> = tm.time()
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"stan took: {end - start:.4f} seconds"</span>)
+</pre>
+</div>
+
+<pre class="example">
+stan took: 97.2314 seconds
+
+</pre>
+
+<p>
+Finally, let's check the results:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> pandas <span style="color: #F0DFAF; font-weight: bold;">as</span> pd
+<span style="color: #F0DFAF; font-weight: bold;">import</span> numpy <span style="color: #F0DFAF; font-weight: bold;">as</span> np
+
+<span style="color: #DFAF8F;">true_vector</span> = np.concatenate(
+    [np.expand_dims(alpha_true.numpy(), 0), np.squeeze(beta_true.numpy())], 0
+)
+
+<span style="color: #DFAF8F;">stan_vector</span> = np.concatenate(
+    [np.expand_dims(stan_mle[<span style="color: #CC9393;">"alpha"</span>], 0), stan_mle[<span style="color: #CC9393;">"beta"</span>]], 0
+)
+
+<span style="color: #DFAF8F;">results</span> = pd.DataFrame(
+    {<span style="color: #CC9393;">"true"</span>: true_vector, <span style="color: #CC9393;">"tf2"</span>: mle.position, <span style="color: #CC9393;">"stan"</span>: stan_vector},
+    index=[<span style="color: #CC9393;">"alpha"</span>, *[f<span style="color: #CC9393;">"beta[{i}]"</span> <span style="color: #F0DFAF; font-weight: bold;">for</span> i <span style="color: #F0DFAF; font-weight: bold;">in</span> <span style="color: #DCDCCC; font-weight: bold;">range</span>(P)]],
+)
+
+results.head(10).<span style="color: #DCDCCC; font-weight: bold;">round</span>(4)
+</pre>
+</div>
+
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+
+<col  class="org-right" />
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">&#xa0;</th>
+<th scope="col" class="org-right">true</th>
+<th scope="col" class="org-right">tf2</th>
+<th scope="col" class="org-right">stan</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">alpha</td>
+<td class="org-right">-0.232084</td>
+<td class="org-right">-0.227752</td>
+<td class="org-right">-0.22775</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[0]</td>
+<td class="org-right">1.06369</td>
+<td class="org-right">1.06159</td>
+<td class="org-right">1.06159</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[1]</td>
+<td class="org-right">1.08326</td>
+<td class="org-right">1.09081</td>
+<td class="org-right">1.09081</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[2]</td>
+<td class="org-right">-2.07422</td>
+<td class="org-right">-2.06481</td>
+<td class="org-right">-2.06481</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[3]</td>
+<td class="org-right">-0.896468</td>
+<td class="org-right">-0.908332</td>
+<td class="org-right">-0.908334</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[4]</td>
+<td class="org-right">1.37697</td>
+<td class="org-right">1.35268</td>
+<td class="org-right">1.35268</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[5]</td>
+<td class="org-right">2.60261</td>
+<td class="org-right">2.62698</td>
+<td class="org-right">2.62698</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[6]</td>
+<td class="org-right">-1.68278</td>
+<td class="org-right">-1.66754</td>
+<td class="org-right">-1.66755</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[7]</td>
+<td class="org-right">-1.68099</td>
+<td class="org-right">-1.68325</td>
+<td class="org-right">-1.68325</td>
+</tr>
+
+<tr>
+<td class="org-left">beta[8]</td>
+<td class="org-right">-3.24181</td>
+<td class="org-right">-3.2511</td>
+<td class="org-right">-3.2511</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+So all looks good! I did get quite a few odd tensorflow warnings doing this, so will
+investigate further&#x2026; I'm also not sure about where to place <code>@tf.function</code>, putting it
+on the <code>fit</code> function actually makes exectution time nearly double!
+</p>
+
+<p>
+My CPU details:
+</p>
+
+<pre class="example">
+Architecture:        x86_64
+CPU op-mode(s):      32-bit, 64-bit
+Byte Order:          Little Endian
+CPU(s):              12
+On-line CPU(s) list: 0-11
+Thread(s) per core:  2
+Core(s) per socket:  6
+Socket(s):           1
+NUMA node(s):        1
+Vendor ID:           GenuineIntel
+CPU family:          6
+Model:               158
+Model name:          Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz
+Stepping:            10
+CPU MHz:             3600.482
+CPU max MHz:         4100.0000
+CPU min MHz:         800.0000
+BogoMIPS:            4416.00
+Virtualisation:      VT-x
+L1d cache:           32K
+L1i cache:           32K
+L2 cache:            256K
+L3 cache:            9216K
+NUMA node0 CPU(s):   0-11
+</pre>
+
+<p>
+and GPU details:
+</p>
+
+<pre class="example">
+./deviceQuery Starting...
+
+ CUDA Device Query (Runtime API) version (CUDART static linking)
+
+Detected 1 CUDA Capable device(s)
+
+Device 0: "GeForce GTX 1060"
+  CUDA Driver Version / Runtime Version          10.0 / 10.0
+  CUDA Capability Major/Minor version number:    6.1
+  Total amount of global memory:                 6078 MBytes (6373572608 bytes)
+  (10) Multiprocessors, (128) CUDA Cores/MP:     1280 CUDA Cores
+  GPU Max Clock rate:                            1671 MHz (1.67 GHz)
+  Memory Clock rate:                             4004 Mhz
+  Memory Bus Width:                              192-bit
+  L2 Cache Size:                                 1572864 bytes
+  Maximum Texture Dimension Size (x,y,z)         1D=(131072), 2D=(131072, 65536), 3D=(16384, 16384, 16384)
+  Maximum Layered 1D Texture Size, (num) layers  1D=(32768), 2048 layers
+  Maximum Layered 2D Texture Size, (num) layers  2D=(32768, 32768), 2048 layers
+  Total amount of constant memory:               65536 bytes
+  Total amount of shared memory per block:       49152 bytes
+  Total number of registers available per block: 65536
+  Warp size:                                     32
+  Maximum number of threads per multiprocessor:  2048
+  Maximum number of threads per block:           1024
+  Max dimension size of a thread block (x,y,z): (1024, 1024, 64)
+  Max dimension size of a grid size    (x,y,z): (2147483647, 65535, 65535)
+  Maximum memory pitch:                          2147483647 bytes
+  Texture alignment:                             512 bytes
+  Concurrent copy and kernel execution:          Yes with 2 copy engine(s)
+  Run time limit on kernels:                     Yes
+  Integrated GPU sharing Host Memory:            No
+  Support host page-locked memory mapping:       Yes
+  Alignment requirement for Surfaces:            Yes
+  Device has ECC support:                        Disabled
+  Device supports Unified Addressing (UVA):      Yes
+  Device supports Compute Preemption:            Yes
+  Supports Cooperative Kernel Launch:            Yes
+  Supports MultiDevice Co-op Kernel Launch:      Yes
+  Device PCI Domain ID / Bus ID / location ID:   0 / 1 / 0
+  Compute Mode:
+     &lt; Default (multiple host threads can use ::cudaSetDevice() with device simultaneously) &gt;
+
+deviceQuery, CUDA Driver = CUDART, CUDA Driver Version = 10.0, CUDA Runtime Version = 10.0, NumDevs = 1, Device0 = GeForce GTX 1060
+Result = PASS
+</pre>

@@ -19,8 +19,19 @@ In this example I use [[https://en.wikipedia.org/wiki/Limited-memory_BFGS][LBFGS
 logistic regression with 1 million observations and 250 predictors. It's really easy to
 do in tensorflow and in stan, the only difference here is the execution time, and the
 gap in this (contrived) example is pretty large. Perhaps when [[https://discourse.mc-stan.org/t/stan-on-the-gpu/326][stan on the GPU]] becomes
-available it will close the gap. It's also worth remembering that the optimization
-stopping criteria may be different in stan and tensorflow-probability.
+available it will close the gap. Less the GPU difference, a few other differences worth
+mentioning are:
+
+1. The LBFGS implementation and stopping criteria may be different in stan and
+   tensorflow-probability
+2. The tensorflow version uses 32 bit floats and stan 64 bit floats (I'm not aware of
+   any way to change this in stan)
+3. Stan only runs on a single core
+
+The latter two points are limitations of stan, I think. I should note that stan does
+seem to support some multithreading (see [[https://pystan.readthedocs.io/en/latest/threading_support.html][pystan threading support]]), although it looks
+quite complicated to use. In tensorflow taking advantage of multiple CPUs or the GPUs
+requires little to no effort from the user.
 
 Anyway, here's the data generation and the tensorflow version:
 

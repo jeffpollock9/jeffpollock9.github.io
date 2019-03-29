@@ -1,9 +1,21 @@
 ---
 layout: post
-title: "Maximum likelihood estimation with tensorflow probability and pystan"
+title: "Maximum likelihood estimation with tensorflow probability and pystan (and now rstan too)"
 permalink: /:title/
-tags: [tensorflow, pystan]
+tags: [tensorflow, pystan, rstan]
 ---
+
+<p>
+I've made some edits to this post based on comments on the <a href="https://discourse.mc-stan.org/t/any-way-to-make-stan-competitive-with-tensorflow-for-maximum-likelihood/8230">stan forums</a> and from <a href="https://disqus.com/by/disqus_9hw16pmjOJ/">Bob
+Carpenter</a> below (many thanks to all):
+</p>
+
+<ol class="org-ol">
+<li><code>y ~ bernoulli_logit(alpha + x * beta);</code> -&gt; <code>y ~ bernoulli_logit_glm(x, alpha, beta);</code> in
+the stan code (actually nvm this doesn't work with the currently released pystan or
+rstan 2.18, I get <a href="https://discourse.mc-stan.org/t/no-correspoding-probability-function-for-bernoulli-logit-glm/7934/10">this error</a>)</li>
+<li>Added rstan example</li>
+</ol>
 
 <p>
 I'm quite excited about <a href="https://www.tensorflow.org/alpha">tensorflow 2</a> and have been using the alpha quite a lot
@@ -97,7 +109,7 @@ tf.random.set_seed(123)
 </div>
 
 <pre class="example">
-tensorflow took: 7.4058 seconds
+tensorflow took: 7.3069 seconds
 converged: True
 iterations: 27
 
@@ -139,14 +151,56 @@ Here's the stan version:
 </div>
 
 <div class="org-src-container">
-<pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"stan took: {end - start:.4f} seconds"</span>)
+<pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"pystan took: {end - start:.4f} seconds"</span>)
 </pre>
 </div>
 
 <pre class="example">
-stan took: 100.3506 seconds
+pystan took: 97.4500 seconds
 
 </pre>
+
+<p>
+Let's also try rstan (unfortunately requires reading/writing to file so I can gather the
+results in python):
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> numpy <span style="color: #F0DFAF; font-weight: bold;">as</span> np
+
+np.savetxt(<span style="color: #CC9393;">"misc/x.csv"</span>, stan_data[<span style="color: #CC9393;">"x"</span>], delimiter=<span style="color: #CC9393;">","</span>)
+np.savetxt(<span style="color: #CC9393;">"misc/y.csv"</span>, stan_data[<span style="color: #CC9393;">"y"</span>], delimiter=<span style="color: #CC9393;">","</span>)
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-R"><span style="color: #BFEBBF;">library</span>(rstan)
+<span style="color: #BFEBBF;">library</span>(data.table)
+<span style="color: #BFEBBF;">library</span>(tictoc)
+
+x <span style="color: #BFEBBF;">&lt;-</span> as.matrix(fread(<span style="color: #CC9393;">"misc/x.csv"</span>, header = <span style="color: #7CB8BB;">FALSE</span>))
+y <span style="color: #BFEBBF;">&lt;-</span> fread(<span style="color: #CC9393;">"misc/y.csv"</span>, header = <span style="color: #7CB8BB;">FALSE</span>)[[1]]
+
+stan_data <span style="color: #BFEBBF;">&lt;-</span> list(N = nrow(x), P = ncol(x), x = x, y = y)
+
+model <span style="color: #BFEBBF;">&lt;-</span> stan_model(stan_file)
+
+tic(<span style="color: #CC9393;">"rstan"</span>)
+fit <span style="color: #BFEBBF;">&lt;-</span> optimizing(model, data = stan_data, hessian = <span style="color: #7CB8BB;">FALSE</span>)
+toc()
+
+fwrite(data.table(fit$par), <span style="color: #CC9393;">"misc/rstan.csv"</span>, col.names = <span style="color: #7CB8BB;">FALSE</span>)
+</pre>
+</div>
+
+<pre class="example">
+rstan: 30.54 sec elapsed
+
+</pre>
+
+<p>
+So in this example rstan is quite different to pystan!
+</p>
 
 <p>
 Finally, let's check the results:
@@ -154,18 +208,24 @@ Finally, let's check the results:
 
 <div class="org-src-container">
 <pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> pandas <span style="color: #F0DFAF; font-weight: bold;">as</span> pd
-<span style="color: #F0DFAF; font-weight: bold;">import</span> numpy <span style="color: #F0DFAF; font-weight: bold;">as</span> np
 
 <span style="color: #DFAF8F;">true_vector</span> = np.concatenate(
     [np.expand_dims(alpha_true.numpy(), 0), np.squeeze(beta_true.numpy())], 0
 )
 
-<span style="color: #DFAF8F;">stan_vector</span> = np.concatenate(
+<span style="color: #DFAF8F;">pystan_vector</span> = np.concatenate(
     [np.expand_dims(stan_mle[<span style="color: #CC9393;">"alpha"</span>], 0), stan_mle[<span style="color: #CC9393;">"beta"</span>]], 0
 )
 
+<span style="color: #DFAF8F;">rstan_vector</span> = np.genfromtxt(<span style="color: #CC9393;">"misc/rstan.csv"</span>, delimiter=<span style="color: #CC9393;">","</span>)
+
 <span style="color: #DFAF8F;">results</span> = pd.DataFrame(
-    {<span style="color: #CC9393;">"true"</span>: true_vector, <span style="color: #CC9393;">"tf2"</span>: mle.position, <span style="color: #CC9393;">"stan"</span>: stan_vector},
+    {
+        <span style="color: #CC9393;">"true"</span>: true_vector,
+        <span style="color: #CC9393;">"tf2"</span>: mle.position,
+        <span style="color: #CC9393;">"pystan"</span>: pystan_vector,
+        <span style="color: #CC9393;">"rstan"</span>: rstan_vector,
+    },
     index=[<span style="color: #CC9393;">"alpha"</span>, *[f<span style="color: #CC9393;">"beta[{i}]"</span> <span style="color: #F0DFAF; font-weight: bold;">for</span> i <span style="color: #F0DFAF; font-weight: bold;">in</span> <span style="color: #DCDCCC; font-weight: bold;">range</span>(P)]],
 )
 
@@ -184,13 +244,16 @@ results.head(10).<span style="color: #DCDCCC; font-weight: bold;">round</span>(4
 <col  class="org-right" />
 
 <col  class="org-right" />
+
+<col  class="org-right" />
 </colgroup>
 <thead>
 <tr>
 <th scope="col" class="org-left">&#xa0;</th>
 <th scope="col" class="org-right">true</th>
 <th scope="col" class="org-right">tf2</th>
-<th scope="col" class="org-right">stan</th>
+<th scope="col" class="org-right">pystan</th>
+<th scope="col" class="org-right">rstan</th>
 </tr>
 </thead>
 <tbody>
@@ -199,6 +262,7 @@ results.head(10).<span style="color: #DCDCCC; font-weight: bold;">round</span>(4
 <td class="org-right">-0.232084</td>
 <td class="org-right">-0.227752</td>
 <td class="org-right">-0.22775</td>
+<td class="org-right">-0.227754</td>
 </tr>
 
 <tr>
@@ -206,6 +270,7 @@ results.head(10).<span style="color: #DCDCCC; font-weight: bold;">round</span>(4
 <td class="org-right">1.06369</td>
 <td class="org-right">1.06159</td>
 <td class="org-right">1.06159</td>
+<td class="org-right">1.0616</td>
 </tr>
 
 <tr>
@@ -213,6 +278,7 @@ results.head(10).<span style="color: #DCDCCC; font-weight: bold;">round</span>(4
 <td class="org-right">1.08326</td>
 <td class="org-right">1.09081</td>
 <td class="org-right">1.09081</td>
+<td class="org-right">1.09082</td>
 </tr>
 
 <tr>
@@ -220,6 +286,7 @@ results.head(10).<span style="color: #DCDCCC; font-weight: bold;">round</span>(4
 <td class="org-right">-2.07422</td>
 <td class="org-right">-2.06481</td>
 <td class="org-right">-2.06481</td>
+<td class="org-right">-2.06483</td>
 </tr>
 
 <tr>
@@ -227,6 +294,7 @@ results.head(10).<span style="color: #DCDCCC; font-weight: bold;">round</span>(4
 <td class="org-right">-0.896468</td>
 <td class="org-right">-0.908332</td>
 <td class="org-right">-0.908334</td>
+<td class="org-right">-0.908344</td>
 </tr>
 
 <tr>
@@ -234,6 +302,7 @@ results.head(10).<span style="color: #DCDCCC; font-weight: bold;">round</span>(4
 <td class="org-right">1.37697</td>
 <td class="org-right">1.35268</td>
 <td class="org-right">1.35268</td>
+<td class="org-right">1.3527</td>
 </tr>
 
 <tr>
@@ -241,6 +310,7 @@ results.head(10).<span style="color: #DCDCCC; font-weight: bold;">round</span>(4
 <td class="org-right">2.60261</td>
 <td class="org-right">2.62698</td>
 <td class="org-right">2.62698</td>
+<td class="org-right">2.62701</td>
 </tr>
 
 <tr>
@@ -248,6 +318,7 @@ results.head(10).<span style="color: #DCDCCC; font-weight: bold;">round</span>(4
 <td class="org-right">-1.68278</td>
 <td class="org-right">-1.66754</td>
 <td class="org-right">-1.66755</td>
+<td class="org-right">-1.66756</td>
 </tr>
 
 <tr>
@@ -255,6 +326,7 @@ results.head(10).<span style="color: #DCDCCC; font-weight: bold;">round</span>(4
 <td class="org-right">-1.68099</td>
 <td class="org-right">-1.68325</td>
 <td class="org-right">-1.68325</td>
+<td class="org-right">-1.68327</td>
 </tr>
 
 <tr>
@@ -262,6 +334,7 @@ results.head(10).<span style="color: #DCDCCC; font-weight: bold;">round</span>(4
 <td class="org-right">-3.24181</td>
 <td class="org-right">-3.2511</td>
 <td class="org-right">-3.2511</td>
+<td class="org-right">-3.25115</td>
 </tr>
 </tbody>
 </table>
@@ -291,7 +364,7 @@ CPU family:          6
 Model:               158
 Model name:          Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz
 Stepping:            10
-CPU MHz:             3491.629
+CPU MHz:             3791.861
 CPU max MHz:         4100.0000
 CPU min MHz:         800.0000
 BogoMIPS:            4416.00

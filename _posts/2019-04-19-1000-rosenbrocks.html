@@ -1,0 +1,71 @@
+---
+layout: post
+title: "1,000 Rosenbrock functions"
+permalink: /:title/
+tags: [optimization, tensorflow]
+---
+
+<p>
+One thing I've always wanted to do was find the global minimum of 1,000 <a href="https://en.wikipedia.org/wiki/Rosenbrock_function">Rosenbrock
+functions</a> using <a href="https://en.wikipedia.org/wiki/Broyden%E2%80%93Fletcher%E2%80%93Goldfarb%E2%80%93Shanno_algorithm">BFGS</a> really quickly - and now I can do it easily!
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> tensorflow <span style="color: #F0DFAF; font-weight: bold;">as</span> tf
+<span style="color: #F0DFAF; font-weight: bold;">import</span> tensorflow_probability <span style="color: #F0DFAF; font-weight: bold;">as</span> tfp
+<span style="color: #F0DFAF; font-weight: bold;">import</span> time <span style="color: #F0DFAF; font-weight: bold;">as</span> tm
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">rosenbrock</span>(x, a, b):
+    <span style="color: #DFAF8F;">x0</span> = x[..., 0]
+    <span style="color: #DFAF8F;">x1</span> = x[..., 1]
+    <span style="color: #DFAF8F;">first</span> = tf.math.squared_difference(a, x0)
+    <span style="color: #DFAF8F;">second</span> = b * tf.math.squared_difference(x1, tf.square(x0))
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> first + second
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">optimize</span>(init, a, b):
+    <span style="color: #7CB8BB;">@tf.function</span>
+    <span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">fn</span>(x):
+        <span style="color: #F0DFAF; font-weight: bold;">return</span> tfp.math.value_and_gradient(<span style="color: #F0DFAF; font-weight: bold;">lambda</span> x: rosenbrock(x, a, b), x)
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> tfp.optimizer.bfgs_minimize(fn, init, max_iterations=100)
+
+
+tf.random.set_seed(42)
+
+<span style="color: #DFAF8F;">batch_size</span> = 1_000
+<span style="color: #DFAF8F;">init</span> = tf.random.normal([batch_size, 2], dtype=tf.float64)
+<span style="color: #DFAF8F;">a</span> = tf.random.normal([batch_size], mean=5.0, dtype=tf.float64)
+<span style="color: #DFAF8F;">b</span> = tf.random.normal([batch_size], mean=100.0, dtype=tf.float64)
+
+<span style="color: #DFAF8F;">start</span> = tm.time()
+<span style="color: #DFAF8F;">opt</span> = optimize(init, a, b)
+<span style="color: #DFAF8F;">end</span> = tm.time()
+
+<span style="color: #DFAF8F;">solution</span> = tf.stack([a, tf.square(a)], axis=-1)
+<span style="color: #DFAF8F;">estimate</span> = opt.position
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-python"><span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"{batch_size:,} optimizations took {end - start:.2f} seconds"</span>)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"iterations: {opt.num_iterations}"</span>)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"all converged: {tf.reduce_all(opt.converged)}"</span>)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"any line searches failed: {tf.reduce_all(opt.failed)}"</span>)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"max abs error: {tf.reduce_max(tf.abs(solution - estimate))}"</span>)
+</pre>
+</div>
+
+<pre class="example">
+1,000 optimizations took 3.66 seconds
+iterations: 72
+all converged: True
+any line searches failed: False
+max abs error: 3.966131600918743e-08
+
+</pre>
+
+<p>
+Now, obviously this isn't useful in itself - it's just an example of how to use the
+batching support <a href="https://github.com/tensorflow/probability/commit/9a317db2e346ed9542fde64558fac8c6a5bd5f5e">recently introduced</a> into tensorflow probability.
+</p>

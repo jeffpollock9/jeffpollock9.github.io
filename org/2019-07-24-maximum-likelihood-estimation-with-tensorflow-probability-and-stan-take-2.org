@@ -1,0 +1,171 @@
+#+BEGIN_EXPORT html
+---
+layout: post
+title: "Maximum likelihood estimation with tensorflow probability and stan take 2"
+permalink: /:title/
+tags: [tensorflow, rstan]
+---
+#+END_EXPORT
+
+After a [[https://jeffpollock9.github.io/maximum-likelihood-estimation-with-tensorflow-probability-and-pystan/][previous post]] there has been some discussion on the [[https://discourse.mc-stan.org/t/any-way-to-make-stan-competitive-with-tensorflow-for-maximum-likelihood/8230][stan forums]] so I thought I
+would have another bash at seeing how fast I can make tensorflow and stan find maximum
+likelihood estimates for a fairly large problem.
+
+I'm using specialised functions for fitting GLMs, namely [[https://mc-stan.org/docs/2_19/functions-reference/bernoulli-logit-glm.html][bernoulli_logit_glm]] in stan and
+[[https://www.tensorflow.org/probability/api_docs/python/tfp/glm/fit][tfp.glm.fit]] in tensorflow. Both of these make the code faster and easier to understand
+than the previous post. Win.
+
+In order to make the tensorflow version as fast as possible, I call it twice, the first
+call creates a graph and I don't want to time that:
+
+#+BEGIN_SRC python :session tf :results none :exports code
+  import tensorflow_probability as tfp
+  import tensorflow as tf
+  import time as tm
+
+  tfd = tfp.distributions
+  tfl = tf.linalg
+
+  N = 1_000_000
+  P = 250
+
+
+  @tf.function(
+      autograph=False,
+      input_signature=[
+          tf.TensorSpec(shape=tf.TensorShape([N, P + 1]), dtype=tf.float32),
+          tf.TensorSpec(shape=tf.TensorShape([N]), dtype=tf.float32),
+      ],
+  )
+  def fit(model_matrix, response):
+      return tfp.glm.fit(
+          model_matrix=model_matrix, response=response, model=tfp.glm.Bernoulli()
+      )
+
+
+  tf.random.set_seed(123)
+
+  alpha_true = tfd.Normal(loc=0.666, scale=1.0).sample()
+  beta_true = tfd.Normal(loc=0.0, scale=3.14).sample(P)
+
+  x = tfd.Normal(loc=0.0, scale=1.0).sample([N, P])
+  y = tfd.Bernoulli(alpha_true + tfl.matvec(x, beta_true), dtype=x.dtype).sample()
+
+  model_matrix = tf.concat([tf.ones([N, 1]), x], axis=1)
+
+  _ = fit(model_matrix, y)
+
+  start = tm.time()
+  mle, linear_response, is_converged, num_iterations = fit(model_matrix, y)
+  end = tm.time()
+#+END_SRC
+
+#+BEGIN_SRC python :session tf :results output :exports both
+  print(f"tf version: {tf.__version__}, tfp version: {tfp.__version__}")
+  print(f"tf took: {end - start:.4f} seconds")
+  print(f"converged: {is_converged}")
+  print(f"iterations: {num_iterations}")
+#+END_SRC
+
+#+RESULTS:
+: tf version: 2.0.0-dev20190724, tfp version: 0.8.0-dev20190724
+: tf took: 2.1741 seconds
+: converged: True
+: iterations: 15
+
+Here's the rstan version:
+
+#+NAME: stan-file
+#+BEGIN_SRC stan :file misc/maximum-likelihood-estimation-with-tensorflow-probability-and-pystan-take-2.stan
+  data {
+      int<lower = 0> N;
+      int<lower = 0> P;
+      matrix[N, P] x;
+      int<lower = 0, upper = 1> y[N];
+  }
+
+  parameters {
+      real alpha;
+      vector[P] beta;
+  }
+
+  model {
+      y ~ bernoulli_logit_glm_lpmf(x, alpha, beta);
+  }
+#+END_SRC
+
+#+RESULTS: stan-file
+[[file:misc/maximum-likelihood-estimation-with-tensorflow-probability-and-pystan-take-2.stan]]
+
+#+BEGIN_SRC python :session tf :results none :exports code
+  import numpy as np
+
+  np.savetxt("misc/x.csv", x.numpy(), delimiter=",")
+  np.savetxt("misc/y.csv", y.numpy(), delimiter=",")
+#+END_SRC
+
+#+BEGIN_SRC R :var stan_file=stan-file :exports both :results output
+  library(rstan)
+  library(data.table)
+  library(tictoc)
+
+  rstan_options(auto_write = TRUE)
+
+  x <- as.matrix(fread("misc/x.csv", header = FALSE))
+  y <- fread("misc/y.csv", header = FALSE)[[1]]
+
+  stan_data <- list(N = nrow(x), P = ncol(x), x = x, y = y)
+
+  model <- stan_model(stan_file)
+
+  tic(paste("rstan version:", packageVersion("rstan")))
+  fit <- optimizing(model, data = stan_data, hessian = FALSE)
+  toc()
+
+  fwrite(data.table(fit$par), "misc/rstan-take-2.csv", col.names = FALSE)
+#+END_SRC
+
+#+RESULTS:
+: rstan version: 2.19.2: 10.893 sec elapsed
+
+Which is pretty impressive running on a single core!
+
+As before, let's check the results:
+
+#+BEGIN_SRC python :session tf :results none :exports code
+  import pandas as pd
+
+  true_vector = np.concatenate(
+      [np.expand_dims(alpha_true.numpy(), 0), np.squeeze(beta_true.numpy())], 0
+  )
+
+  estimates = pd.DataFrame(
+      {
+          "true": true_vector,
+          "tf2": mle.numpy(),
+          "rstan": np.genfromtxt("misc/rstan-take-2.csv", delimiter=","),
+      },
+      index=["alpha", *[f"beta[{i}]" for i in range(P)]],
+  )
+
+  estimates.sample(10).round(6)
+#+END_SRC
+
+#+BEGIN_SRC python :session tf :exports results :results raw
+  import tabulate as tb
+  _ = tb.tabulate(estimates.sample(10).round(6), headers="keys", tablefmt="orgtbl")
+#+END_SRC
+
+#+RESULTS:
+|           |     true |      tf2 |    rstan |
+|-----------+----------+----------+----------|
+| beta[33]  | 0.946335 | 0.947639 | 0.929547 |
+| beta[43]  |  1.55799 |  1.58924 |  1.55901 |
+| beta[46]  |  4.70205 |  4.77666 |  4.68582 |
+| beta[229] | 0.967738 | 0.993362 | 0.974337 |
+| beta[8]   | -3.24181 | -3.31419 | -3.25117 |
+| beta[4]   |  1.37697 |   1.3789 |  1.35271 |
+| beta[53]  | -2.40841 | -2.47981 | -2.43257 |
+| beta[232] | 0.707907 | 0.744426 | 0.730309 |
+| beta[115] |  2.10953 |  2.14456 |  2.10379 |
+| beta[6]   | -1.68278 | -1.69997 | -1.66758 |

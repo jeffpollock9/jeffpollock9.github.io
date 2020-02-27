@@ -9,12 +9,12 @@ tags: [tensorflow, stan, soccer]
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
 <ul>
-<li><a href="#org2436fb9">1. Setup</a></li>
-<li><a href="#orgf21016a">2. Data</a></li>
-<li><a href="#orge7a729b">3. TFP</a></li>
-<li><a href="#orgafa9a46">4. Stan</a></li>
-<li><a href="#org6adef5c">5. Posterior predictive check</a></li>
-<li><a href="#org87090a9">6. Conclusion</a></li>
+<li><a href="#org13f9722">1. Setup</a></li>
+<li><a href="#org52f3055">2. Data</a></li>
+<li><a href="#org9a18e01">3. TFP</a></li>
+<li><a href="#org8b6794a">4. Stan</a></li>
+<li><a href="#orgb66a6d2">5. Posterior predictive check</a></li>
+<li><a href="#orge4e0eb6">6. Conclusion</a></li>
 </ul>
 </div>
 </div>
@@ -49,8 +49,8 @@ For a detailed explanation on the prior used on the cutpoints and general ordina
 goodness, see <a href="https://betanalpha.github.io/assets/case_studies/ordinal_regression.html">this case study by Michael Betancourt</a>.
 </p>
 
-<div id="outline-container-org2436fb9" class="outline-2">
-<h2 id="org2436fb9"><span class="section-number-2">1</span> Setup</h2>
+<div id="outline-container-org13f9722" class="outline-2">
+<h2 id="org13f9722"><span class="section-number-2">1</span> Setup</h2>
 <div class="outline-text-2" id="text-1">
 <p>
 Until the next TFP release (0.10.0 I think) the ordered logistic distribution will be
@@ -75,8 +75,8 @@ tfp: 0.10.0-dev20200214
 </div>
 </div>
 
-<div id="outline-container-orgf21016a" class="outline-2">
-<h2 id="orgf21016a"><span class="section-number-2">2</span> Data</h2>
+<div id="outline-container-org52f3055" class="outline-2">
+<h2 id="org52f3055"><span class="section-number-2">2</span> Data</h2>
 <div class="outline-text-2" id="text-2">
 <div class="org-src-container">
 <pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> pandas <span style="color: #F0DFAF; font-weight: bold;">as</span> pd
@@ -147,8 +147,8 @@ tfp: 0.10.0-dev20200214
 </div>
 </div>
 
-<div id="outline-container-orge7a729b" class="outline-2">
-<h2 id="orge7a729b"><span class="section-number-2">3</span> TFP</h2>
+<div id="outline-container-org9a18e01" class="outline-2">
+<h2 id="org9a18e01"><span class="section-number-2">3</span> TFP</h2>
 <div class="outline-text-2" id="text-3">
 <div class="org-src-container">
 <pre class="src src-jupyter-python"><span style="color: #DFAF8F;">num_outcomes</span> = 7
@@ -450,8 +450,8 @@ unit_team_strength[34] -0.538  0.328  -1.169    0.056    1612.0   1.00
 </div>
 </div>
 
-<div id="outline-container-orgafa9a46" class="outline-2">
-<h2 id="orgafa9a46"><span class="section-number-2">4</span> Stan</h2>
+<div id="outline-container-org8b6794a" class="outline-2">
+<h2 id="org8b6794a"><span class="section-number-2">4</span> Stan</h2>
 <div class="outline-text-2" id="text-4">
 <p>
 Note that there is a bug in the current version of pystan with the ordered logistic
@@ -459,7 +459,7 @@ distribution so we need to edit some C++ code as per <a href="https://github.com
 </p>
 
 <div class="org-src-container">
-<pre class="src src-stan" id="org104e530"><span style="color: #F0DFAF; font-weight: bold;">data</span> {
+<pre class="src src-stan" id="orga230f87"><span style="color: #F0DFAF; font-weight: bold;">data</span> {
     <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 1&gt; <span style="color: #DFAF8F;">n</span>;
     <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 2&gt; <span style="color: #DFAF8F;">num_teams</span>;
     <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 2&gt; <span style="color: #DFAF8F;">num_outcomes</span>;
@@ -590,8 +590,8 @@ team_scale              0.615  0.080   0.480    0.773    1012.0    1.0
 </div>
 </div>
 
-<div id="outline-container-org6adef5c" class="outline-2">
-<h2 id="org6adef5c"><span class="section-number-2">5</span> Posterior predictive check</h2>
+<div id="outline-container-orgb66a6d2" class="outline-2">
+<h2 id="orgb66a6d2"><span class="section-number-2">5</span> Posterior predictive check</h2>
 <div class="outline-text-2" id="text-5">
 <p>
 Not sure how to implemenent this without copy-pasting some of the model code, would be
@@ -663,8 +663,8 @@ So no obvious problems with the model in this test!
 </div>
 </div>
 
-<div id="outline-container-org87090a9" class="outline-2">
-<h2 id="org87090a9"><span class="section-number-2">6</span> Conclusion</h2>
+<div id="outline-container-orge4e0eb6" class="outline-2">
+<h2 id="orge4e0eb6"><span class="section-number-2">6</span> Conclusion</h2>
 <div class="outline-text-2" id="text-6">
 <p>
 I've skipped over a bunch of details in the code here, but hopefully this shows how one

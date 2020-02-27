@@ -1,0 +1,664 @@
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#org2436fb9">1. Setup</a></li>
+<li><a href="#orgf21016a">2. Data</a></li>
+<li><a href="#orge7a729b">3. TFP</a></li>
+<li><a href="#orgafa9a46">4. Stan</a></li>
+<li><a href="#org6adef5c">5. Posterior predictive check</a></li>
+<li><a href="#org87090a9">6. Conclusion</a></li>
+</ul>
+</div>
+</div>
+---
+layout: post
+title: "The ordered logistic distribution"
+permalink: /:title/
+tags: [tensorflow, stan, soccer]
+---
+
+<p>
+I was very pleased to wake up the other day to find that some code I wrote for the
+ordered logistic distribution had been <a href="https://github.com/tensorflow/probability/pull/753">accepted into TensorFlow Probability</a> (TFP)!
+However when writing this post I found that my code wasn't quite right (so my testing
+was bad) and I've tried to rectify that in <a href="https://github.com/tensorflow/probability/pull/795">this PR</a> which includes the code I am using in
+this post.
+</p>
+
+<p>
+The ordered logistic distribution is one of those annoying ones which people tend to
+call lots of different things and also write down differently too. The implementation I
+used in TFP follows <a href="https://mc-stan.org/docs/2_22/functions-reference/ordered-logistic-distribution.html">Stan</a> and <a href="https://docs.pymc.io/api/distributions/discrete.html#pymc3.distributions.discrete.OrderedLogistic">PyMC3</a> and is currently documented <a href="https://www.tensorflow.org/probability/api_docs/python/tfp/distributions/OrderedLogistic">here</a>.
+</p>
+
+<p>
+I've decided to show an example of all this with some soccer data, in fact the same data
+I used <a href="https://jeffpollock9.github.io/checking-soccer-models-with-PPC/">in a previous post</a> when I diagnosed a problem with the model underestimating the
+draw probability. I wonder if it will be the case again when we directly consider
+modelling the (clipped) score difference as an ordered outcome?
+</p>
+
+<p>
+I'll also implement the model in TFP and Stan and see how they compare.
+</p>
+
+<p>
+For a detailed explanation on the prior used on the cutpoints and general ordinal model
+goodness, see <a href="https://betanalpha.github.io/assets/case_studies/ordinal_regression.html">This case study by Michael Betancourt</a>.
+</p>
+
+<div id="outline-container-org2436fb9" class="outline-2">
+<h2 id="org2436fb9"><span class="section-number-2">1</span> Setup</h2>
+<div class="outline-text-2" id="text-1">
+<p>
+Until the next TFP release (0.10.0 I think) the ordered logistic distribution will be
+available in the nightly TFP release, which is tested against the TensorFlow nightly
+release:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> tensorflow <span style="color: #F0DFAF; font-weight: bold;">as</span> tf
+<span style="color: #F0DFAF; font-weight: bold;">import</span> tensorflow_probability <span style="color: #F0DFAF; font-weight: bold;">as</span> tfp
+
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"tf: {tf.__version__}"</span>)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"tfp: {tfp.__version__}"</span>)
+</pre>
+</div>
+
+<pre class="example">
+tf: 2.2.0-dev20200212
+tfp: 0.10.0-dev20200214
+
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgf21016a" class="outline-2">
+<h2 id="orgf21016a"><span class="section-number-2">2</span> Data</h2>
+<div class="outline-text-2" id="text-2">
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> pandas <span style="color: #F0DFAF; font-weight: bold;">as</span> pd
+<span style="color: #F0DFAF; font-weight: bold;">import</span> numpy <span style="color: #F0DFAF; font-weight: bold;">as</span> np
+
+<span style="color: #DFAF8F;">data_list</span> = []
+<span style="color: #F0DFAF; font-weight: bold;">for</span> x <span style="color: #F0DFAF; font-weight: bold;">in</span> <span style="color: #DCDCCC; font-weight: bold;">range</span>(10, 19):
+    <span style="color: #DFAF8F;">season</span> = f<span style="color: #CC9393;">"{x}{x+1}"</span>
+    <span style="color: #DFAF8F;">url</span> = f<span style="color: #CC9393;">"http://www.football-data.co.uk/mmz4281/{season}/E0.csv"</span>
+    data_list.append(pd.read_csv(url))
+
+<span style="color: #DFAF8F;">soccer_data</span> = (
+    pd.concat(data_list, axis=0)
+    .rename(
+        columns={
+            <span style="color: #CC9393;">"HomeTeam"</span>: <span style="color: #CC9393;">"home_team_name"</span>,
+            <span style="color: #CC9393;">"AwayTeam"</span>: <span style="color: #CC9393;">"away_team_name"</span>,
+            <span style="color: #CC9393;">"FTHG"</span>: <span style="color: #CC9393;">"home_goals"</span>,
+            <span style="color: #CC9393;">"FTAG"</span>: <span style="color: #CC9393;">"away_goals"</span>,
+        }
+    )
+    .<span style="color: #DCDCCC; font-weight: bold;">filter</span>(regex=<span style="color: #CC9393;">"^home_|^away"</span>)
+    .dropna()
+    .astype({<span style="color: #CC9393;">"home_goals"</span>: np.int32, <span style="color: #CC9393;">"away_goals"</span>: np.int32})
+    .assign(
+        clipped_score_difference=<span style="color: #F0DFAF; font-weight: bold;">lambda</span> x: np.clip(
+            x[<span style="color: #CC9393;">"home_goals"</span>] - x[<span style="color: #CC9393;">"away_goals"</span>], -3, 3
+        )
+    )
+)
+
+<span style="color: #DFAF8F;">team_names</span> = np.unique(
+    pd.concat([soccer_data[<span style="color: #CC9393;">"home_team_name"</span>], soccer_data[<span style="color: #CC9393;">"away_team_name"</span>]])
+)
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">team_code</span>(team_name):
+    <span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">fn</span>(df):
+        <span style="color: #DFAF8F;">codes</span> = pd.Categorical(df[team_name], categories=team_names).codes
+        <span style="color: #F0DFAF; font-weight: bold;">return</span> codes.astype(np.int32)
+
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> fn
+
+
+<span style="color: #DFAF8F;">soccer_data</span> = soccer_data.assign(
+    home_team=team_code(<span style="color: #CC9393;">"home_team_name"</span>), away_team=team_code(<span style="color: #CC9393;">"away_team_name"</span>),
+)
+
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(soccer_data.head())
+</pre>
+</div>
+
+<pre class="example">
+  home_team_name away_team_name  home_goals  away_goals  \
+0    Aston Villa       West Ham           3           0   
+1      Blackburn        Everton           1           0   
+2         Bolton         Fulham           0           0   
+3        Chelsea      West Brom           6           0   
+4     Sunderland     Birmingham           2           2   
+
+   clipped_score_difference  home_team  away_team  
+0                         3          1         32  
+1                         1          3         12  
+2                         0          5         13  
+3                         3         10         31  
+4                         0         27          2  
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orge7a729b" class="outline-2">
+<h2 id="orge7a729b"><span class="section-number-2">3</span> TFP</h2>
+<div class="outline-text-2" id="text-3">
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">num_outcomes</span> = 7
+<span style="color: #DFAF8F;">num_teams</span> = <span style="color: #DCDCCC; font-weight: bold;">len</span>(team_names)
+<span style="color: #DFAF8F;">home_team</span> = soccer_data[<span style="color: #CC9393;">"home_team"</span>].to_numpy()
+<span style="color: #DFAF8F;">away_team</span> = soccer_data[<span style="color: #CC9393;">"away_team"</span>].to_numpy()
+<span style="color: #DFAF8F;">clipped_score_difference</span> = soccer_data[<span style="color: #CC9393;">"clipped_score_difference"</span>].to_numpy()
+
+<span style="color: #DFAF8F;">tfb</span> = tfp.bijectors
+<span style="color: #DFAF8F;">tfd</span> = tfp.distributions
+
+<span style="color: #DFAF8F;">Root</span> = tfd.JointDistributionCoroutine.Root
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">logit</span>(x):
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> -tf.math.log(tf.math.reciprocal(x) - 1.0)
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">make_cutpoints</span>(simplex):
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> logit(tf.math.cumsum(simplex[..., tf.newaxis, :-1], axis=-1))
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">model</span>():
+    <span style="color: #DFAF8F;">cutpoints_simplex</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> Root(tfd.Dirichlet([1., 2., 3., 4., 3., 2., 1.]))
+    <span style="color: #DFAF8F;">team_scale</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> Root(tfd.HalfNormal(1.0))
+
+    <span style="color: #DFAF8F;">team_strength</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.MultivariateNormalDiag(
+        loc=tf.zeros(num_teams),
+        scale_diag=team_scale[..., tf.newaxis] * tf.ones(num_teams),
+    )
+
+    <span style="color: #DFAF8F;">home_strength</span> = tf.gather(team_strength, home_team, axis=-1)
+    <span style="color: #DFAF8F;">away_strength</span> = tf.gather(team_strength, away_team, axis=-1)
+
+    <span style="color: #DFAF8F;">clipped_score_difference</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.Independent(
+        tfd.OrderedLogistic(
+            cutpoints=make_cutpoints(cutpoints_simplex),
+            loc=home_strength - away_strength,
+        ),
+        reinterpreted_batch_ndims=1,
+    )
+
+
+<span style="color: #DFAF8F;">joint_dist</span> = tfd.JointDistributionCoroutine(model)
+</pre>
+</div>
+
+<p>
+What I like about TFP over stan is that it is automatic to sample from the prior
+(i.e. before we condition on any observed outcomes) and in this case it is obvious what
+the effect of our priors are. That is, how informative and realistic they are. Here I
+sample 1,000 datasets and consider the resulting clipped score differences:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> matplotlib.pyplot <span style="color: #F0DFAF; font-weight: bold;">as</span> plt
+
+<span style="color: #DFAF8F;">_</span>, <span style="color: #DFAF8F;">_</span>, <span style="color: #DFAF8F;">_</span>, <span style="color: #DFAF8F;">prior_predictive_samples</span> = joint_dist.sample(1_000)
+
+<span style="color: #DFAF8F;">sampled_score_difference_counts</span> = [
+    np.bincount(sample, minlength=7) <span style="color: #F0DFAF; font-weight: bold;">for</span> sample <span style="color: #F0DFAF; font-weight: bold;">in</span> prior_predictive_samples
+]
+<span style="color: #DFAF8F;">obsered_score_difference_counts</span> = np.bincount(clipped_score_difference + 3)
+
+<span style="color: #DFAF8F;">sampled_mean</span> = np.mean(sampled_score_difference_counts, axis=0)
+<span style="color: #DFAF8F;">sampled_quantiles</span> = np.quantile(
+    sampled_score_difference_counts, q=[0.025, 0.975], axis=0
+)
+
+<span style="color: #DFAF8F;">low_error</span> = sampled_mean - sampled_quantiles[0]
+<span style="color: #DFAF8F;">high_error</span> = sampled_quantiles[1] - sampled_mean
+
+plt.bar(
+    x=np.arange(-3, 4),
+    height=obsered_score_difference_counts,
+    label=<span style="color: #CC9393;">"observed data"</span>,
+    color=<span style="color: #CC9393;">"blue"</span>,
+)
+
+plt.errorbar(
+    x=np.arange(-3, 4),
+    y=sampled_mean,
+    yerr=[low_error, high_error],
+    fmt=<span style="color: #CC9393;">"o"</span>,
+    label=<span style="color: #CC9393;">"simulated data"</span>,
+    color=<span style="color: #CC9393;">"red"</span>,
+    capsize=5,
+)
+
+plt.legend(loc=<span style="color: #CC9393;">"upper left"</span>)
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="misc/prior_samples.png" alt="prior_samples.png" />
+</p>
+</div>
+
+<p>
+The way we have written the model is quite interpretable - so we could spend some time
+thinking about what priors we should choose. That's not what I'm exploring in this post
+however - I want to see how my posterior looks!
+</p>
+
+<p>
+I'm not quite sure how to decide how many chains/samples to take with TFP on the GPU
+right now, adding extra chains is usually cheap though so I'm running twice as many
+chains (and half the number of results) compared to the stan code below.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> time <span style="color: #F0DFAF; font-weight: bold;">as</span> tm
+
+<span style="color: #DFAF8F;">num_chains</span> = 10
+<span style="color: #DFAF8F;">num_burnin_steps</span> = 1_000
+<span style="color: #DFAF8F;">num_results</span> = 500
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">target_log_prob_fn</span>(*state):
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> joint_dist.log_prob(<span style="color: #DCDCCC; font-weight: bold;">list</span>(state) + [clipped_score_difference + 3])
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">trace_fn</span>(states, pkr):
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> (
+        pkr.inner_results.inner_results.target_log_prob,
+        pkr.inner_results.inner_results.leapfrogs_taken,
+        pkr.inner_results.inner_results.has_divergence,
+        pkr.inner_results.inner_results.energy,
+        pkr.inner_results.inner_results.log_accept_ratio,
+    )
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">step_size_setter_fn</span>(pkr, new_step_size):
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> pkr._replace(
+        inner_results=pkr.inner_results._replace(step_size=new_step_size)
+    )
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">step_size_getter_fn</span>(pkr):
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> pkr.inner_results.step_size
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">log_accept_prob_getter_fn</span>(pkr):
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> pkr.inner_results.log_accept_ratio
+
+
+<span style="color: #DFAF8F;">initial_state</span> = <span style="color: #DCDCCC; font-weight: bold;">list</span>(joint_dist.sample(num_chains)[:-1])
+<span style="color: #DFAF8F;">initial_step_size</span> = [0.1] * <span style="color: #DCDCCC; font-weight: bold;">len</span>(initial_state)
+
+<span style="color: #DFAF8F;">nuts</span> = tfp.mcmc.NoUTurnSampler(target_log_prob_fn, step_size=initial_step_size)
+
+<span style="color: #DFAF8F;">transformed_nuts</span> = tfp.mcmc.TransformedTransitionKernel(
+    inner_kernel=nuts, bijector=[tfb.SoftmaxCentered(), tfb.Softplus(), tfb.Identity()],
+)
+
+<span style="color: #DFAF8F;">adaptive_transformed_nuts</span> = tfp.mcmc.DualAveragingStepSizeAdaptation(
+    inner_kernel=transformed_nuts,
+    num_adaptation_steps=<span style="color: #DCDCCC; font-weight: bold;">int</span>(0.8 * num_burnin_steps),
+    target_accept_prob=0.85,
+    step_size_setter_fn=step_size_setter_fn,
+    step_size_getter_fn=step_size_getter_fn,
+    log_accept_prob_getter_fn=log_accept_prob_getter_fn,
+)
+
+
+<span style="color: #7CB8BB;">@tf.function</span>(autograph=<span style="color: #BFEBBF;">False</span>, experimental_compile=<span style="color: #BFEBBF;">False</span>)
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">run_mcmc</span>():
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> tfp.mcmc.sample_chain(
+        num_results=num_results,
+        current_state=initial_state,
+        num_burnin_steps=num_burnin_steps,
+        kernel=adaptive_transformed_nuts,
+        trace_fn=trace_fn,
+    )
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">start_tfp</span> = tm.time()
+<span style="color: #DFAF8F;">samples</span>, <span style="color: #DFAF8F;">sample_stats</span> = run_mcmc()
+<span style="color: #DFAF8F;">end_tfp</span> = tm.time()
+
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"TFP took {end_tfp - start_tfp:.2f} seconds"</span>)
+</pre>
+</div>
+
+<pre class="example">
+WARNING:tensorflow:From /home/jeff/.virtualenvs/ordered/lib/python3.6/site-packages/tensorflow_core/python/ops/linalg/linear_operator_diag.py:166: calling LinearOperator.__init__ (from tensorflow.python.ops.linalg.linear_operator) with graph_parents is deprecated and will be removed in a future version.
+Instructions for updating:
+Do not pass `graph_parents`.  They will  no longer be used.
+TFP took 324.66 seconds
+
+</pre>
+
+<p>
+Was unfortunate that I couldn't get <code>experimental_compile=True</code> to work, which in some
+examples gives a massive speed boost. It gives an error about the Gamma sampler not
+being supported, which is called in the Dirichlet sampler.
+</p>
+
+<p>
+As per usual I use <a href="https://github.com/arviz-devs/arviz">arviz</a> to explore the results:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> arviz <span style="color: #F0DFAF; font-weight: bold;">as</span> az
+<span style="color: #F0DFAF; font-weight: bold;">import</span> numpy <span style="color: #F0DFAF; font-weight: bold;">as</span> np
+
+
+<span style="color: #DFAF8F;">sample_names</span> = [<span style="color: #CC9393;">"cutpoints_simplex"</span>, <span style="color: #CC9393;">"team_scale"</span>, <span style="color: #CC9393;">"team_strength"</span>]
+<span style="color: #DFAF8F;">summary_vars</span> = [<span style="color: #CC9393;">"mean"</span>, <span style="color: #CC9393;">"sd"</span>, <span style="color: #CC9393;">"hpd_3%"</span>, <span style="color: #CC9393;">"hpd_97%"</span>, <span style="color: #CC9393;">"ess_bulk"</span>, <span style="color: #CC9393;">"r_hat"</span>]
+
+<span style="color: #DFAF8F;">az_samples</span> = {
+    name: np.swapaxes(sample, 0, 1) <span style="color: #F0DFAF; font-weight: bold;">for</span> name, sample <span style="color: #F0DFAF; font-weight: bold;">in</span> <span style="color: #DCDCCC; font-weight: bold;">zip</span>(sample_names, samples)
+}
+
+<span style="color: #DFAF8F;">sample_stats_names</span> = [
+    <span style="color: #CC9393;">"lp"</span>,
+    <span style="color: #CC9393;">"tree_size"</span>,
+    <span style="color: #CC9393;">"diverging"</span>,
+    <span style="color: #CC9393;">"energy"</span>,
+    <span style="color: #CC9393;">"mean_tree_accept"</span>,
+]
+
+<span style="color: #DFAF8F;">az_sample_stats</span> = {
+    name: np.swapaxes(stat, 0, 1)
+    <span style="color: #F0DFAF; font-weight: bold;">for</span> name, stat <span style="color: #F0DFAF; font-weight: bold;">in</span> <span style="color: #DCDCCC; font-weight: bold;">zip</span>(sample_stats_names, sample_stats)
+}
+
+<span style="color: #DFAF8F;">tfp_fit</span> = az.from_dict(
+    az_samples,
+    sample_stats=az_sample_stats,
+    coords={<span style="color: #CC9393;">"teams"</span>: team_names},
+    dims={<span style="color: #CC9393;">"team_strength"</span>: [<span style="color: #CC9393;">"teams"</span>]},
+)
+
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(az.summary(tfp_fit).<span style="color: #DCDCCC; font-weight: bold;">filter</span>(items=summary_vars))
+</pre>
+</div>
+
+<pre class="example">
+                       mean     sd  hpd_3%  hpd_97%  ess_bulk  r_hat
+cutpoints_simplex[0]  0.042  0.003   0.036    0.047    5574.0   1.00
+cutpoints_simplex[1]  0.064  0.004   0.057    0.072    5260.0   1.00
+cutpoints_simplex[2]  0.162  0.006   0.150    0.174    5416.0   1.00
+cutpoints_simplex[3]  0.284  0.008   0.267    0.299    5379.0   1.00
+cutpoints_simplex[4]  0.233  0.008   0.219    0.249    5101.0   1.00
+cutpoints_simplex[5]  0.134  0.006   0.124    0.146    5217.0   1.00
+cutpoints_simplex[6]  0.081  0.005   0.073    0.090   10551.0   1.00
+team_scale            0.614  0.083   0.478    0.776    6232.0   1.00
+team_strength[0]      1.048  0.140   0.796    1.317    1347.0   1.01
+team_strength[1]     -0.401  0.149  -0.679   -0.129    1591.0   1.01
+team_strength[2]     -0.210  0.263  -0.717    0.270    2421.0   1.01
+team_strength[3]     -0.341  0.215  -0.741    0.050    2677.0   1.00
+team_strength[4]     -0.351  0.279  -0.881    0.167    2472.0   1.00
+team_strength[5]     -0.326  0.220  -0.753    0.066    2747.0   1.00
+team_strength[6]     -0.194  0.178  -0.519    0.137    2189.0   1.00
+team_strength[7]     -0.289  0.210  -0.662    0.122    2588.0   1.00
+team_strength[8]     -0.165  0.169  -0.487    0.152    1979.0   1.01
+team_strength[9]     -0.748  0.216  -1.153   -0.346    2589.0   1.00
+team_strength[10]     1.082  0.141   0.808    1.333    1350.0   1.01
+team_strength[11]    -0.011  0.152  -0.305    0.268    1740.0   1.01
+team_strength[12]     0.444  0.138   0.192    0.714    1296.0   1.01
+team_strength[13]    -0.341  0.164  -0.635   -0.015    1926.0   1.01
+team_strength[14]    -0.837  0.213  -1.250   -0.442    2614.0   1.00
+team_strength[15]    -0.441  0.186  -0.808   -0.107    2288.0   1.00
+team_strength[16]     0.318  0.162   0.015    0.625    1687.0   1.01
+team_strength[17]     1.012  0.144   0.746    1.281    1488.0   1.01
+team_strength[18]     1.531  0.144   1.253    1.800    1373.0   1.01
+team_strength[19]     1.081  0.139   0.816    1.339    1330.0   1.01
+team_strength[20]    -0.374  0.267  -0.889    0.104    2187.0   1.00
+team_strength[21]    -0.086  0.142  -0.331    0.200    1430.0   1.01
+team_strength[22]    -0.333  0.170  -0.647   -0.012    2020.0   1.00
+team_strength[23]    -0.459  0.184  -0.799   -0.115    2174.0   1.00
+team_strength[24]    -0.521  0.264  -1.015   -0.031    2817.0   1.00
+team_strength[25]     0.181  0.146  -0.080    0.467    1590.0   1.01
+team_strength[26]    -0.060  0.142  -0.332    0.199    1358.0   1.01
+team_strength[27]    -0.221  0.150  -0.522    0.049    1588.0   1.01
+team_strength[28]    -0.014  0.148  -0.292    0.262    1586.0   1.01
+team_strength[29]     0.901  0.141   0.637    1.165    1383.0   1.01
+team_strength[30]    -0.121  0.170  -0.443    0.193    1922.0   1.00
+team_strength[31]    -0.112  0.141  -0.374    0.155    1394.0   1.01
+team_strength[32]    -0.005  0.144  -0.287    0.255    1490.0   1.01
+team_strength[33]    -0.343  0.192  -0.698    0.020    2215.0   1.00
+team_strength[34]    -0.325  0.189  -0.712    0.000    2313.0   1.00
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python">az.plot_forest(tfp_fit, var_names=<span style="color: #CC9393;">"team_strength"</span>, combined=<span style="color: #BFEBBF;">True</span>)
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="misc/stan_team_strength.png" alt="stan_team_strength.png" />
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgafa9a46" class="outline-2">
+<h2 id="orgafa9a46"><span class="section-number-2">4</span> Stan</h2>
+<div class="outline-text-2" id="text-4">
+<p>
+Note that there is a bug in the current version of pystan with the ordered logistic
+distribution so we need to edit some C++ code as per <a href="https://github.com/stan-dev/math/pull/1249/files">this PR</a>.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-stan" id="org104e530"><span style="color: #F0DFAF; font-weight: bold;">data</span> {
+    <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 1&gt; <span style="color: #DFAF8F;">n</span>;
+    <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 2&gt; <span style="color: #DFAF8F;">num_teams</span>;
+    <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 2&gt; <span style="color: #DFAF8F;">num_outcomes</span>;
+    <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 1, <span style="color: #F0DFAF; font-weight: bold;">upper</span> <span style="color: #BFEBBF;">=</span> num_teams&gt; <span style="color: #DFAF8F;">home_team</span>[n];
+    <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 1, <span style="color: #F0DFAF; font-weight: bold;">upper</span> <span style="color: #BFEBBF;">=</span> num_teams&gt; <span style="color: #DFAF8F;">away_team</span>[n];
+    <span style="color: #7CB8BB;">int</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 1, <span style="color: #F0DFAF; font-weight: bold;">upper</span> <span style="color: #BFEBBF;">=</span> num_outcomes&gt; <span style="color: #DFAF8F;">clipped_score_difference</span>[n];
+}
+
+<span style="color: #F0DFAF; font-weight: bold;">parameters</span> {
+    <span style="color: #7CB8BB;">simplex</span>[num_outcomes] <span style="color: #DFAF8F;">cutpoints_simplex</span>;
+    <span style="color: #7CB8BB;">vector</span>[num_teams] <span style="color: #DFAF8F;">team_strength</span>;
+    <span style="color: #7CB8BB;">real</span>&lt;<span style="color: #F0DFAF; font-weight: bold;">lower</span> <span style="color: #BFEBBF;">=</span> 0.0&gt; <span style="color: #DFAF8F;">team_scale</span>;
+}
+
+<span style="color: #F0DFAF; font-weight: bold;">model</span> {
+    <span style="color: #7CB8BB;">vector</span>[num_outcomes - 1] cutpoints <span style="color: #BFEBBF;">=</span> <span style="color: #93E0E3;">logit</span>(
+        <span style="color: #93E0E3;">cumulative_sum</span>(cutpoints_simplex[1:(num_outcomes - 1)]));
+    <span style="color: #7CB8BB;">vector</span>[n] location <span style="color: #BFEBBF;">=</span> team_strength[home_team] - team_strength[away_team];
+
+    team_strength <span style="color: #BFEBBF;">~</span> <span style="color: #93E0E3;">normal</span>(0.0, team_scale);
+    team_scale <span style="color: #BFEBBF;">~</span> <span style="color: #93E0E3;">exponential</span>(1.0);
+
+    clipped_score_difference <span style="color: #BFEBBF;">~</span> <span style="color: #93E0E3;">ordered_logistic</span>(location, cutpoints);
+}
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> pystan
+<span style="color: #F0DFAF; font-weight: bold;">import</span> arviz <span style="color: #F0DFAF; font-weight: bold;">as</span> az
+
+<span style="color: #DFAF8F;">go_faster_flags</span> = [<span style="color: #CC9393;">"-O3"</span>, <span style="color: #CC9393;">"-march=native"</span>, <span style="color: #CC9393;">"-ffast-math"</span>]
+
+<span style="color: #DFAF8F;">stan_model</span> = pystan.StanModel(
+    <span style="color: #DCDCCC; font-weight: bold;">file</span>=stan_file, model_name=<span style="color: #CC9393;">"ordered_model"</span>, extra_compile_args=go_faster_flags
+)
+
+<span style="color: #DFAF8F;">stan_data</span> = {
+    <span style="color: #CC9393;">"n"</span>: <span style="color: #DCDCCC; font-weight: bold;">len</span>(soccer_data),
+    <span style="color: #CC9393;">"num_teams"</span>: <span style="color: #DCDCCC; font-weight: bold;">len</span>(team_names),
+    <span style="color: #CC9393;">"num_outcomes"</span>: 7,
+    <span style="color: #CC9393;">"home_team"</span>: soccer_data[<span style="color: #CC9393;">"home_team"</span>] + 1,
+    <span style="color: #CC9393;">"away_team"</span>: soccer_data[<span style="color: #CC9393;">"away_team"</span>] + 1,
+    <span style="color: #CC9393;">"clipped_score_difference"</span>: soccer_data[<span style="color: #CC9393;">"clipped_score_difference"</span>] + 4,
+}
+
+<span style="color: #DFAF8F;">start_stan</span> = tm.time()
+<span style="color: #DFAF8F;">stan_fit</span> = az.from_pystan(
+    stan_model.sampling(data=stan_data, chains=5),
+    coords={<span style="color: #CC9393;">"team"</span>: team_names},
+    dims={<span style="color: #CC9393;">"team_strength"</span>: [<span style="color: #CC9393;">"team_names"</span>]},
+)
+<span style="color: #DFAF8F;">end_stan</span> = tm.time()
+
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"stan took {end_stan - start_stan:.2f} seconds"</span>)
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">print</span>(az.summary(stan_fit).<span style="color: #DCDCCC; font-weight: bold;">filter</span>(items=summary_vars))
+</pre>
+</div>
+
+<pre class="example">
+                       mean     sd  hpd_3%  hpd_97%  ess_bulk  r_hat
+cutpoints_simplex[0]  0.042  0.003   0.036    0.048    4763.0   1.00
+cutpoints_simplex[1]  0.064  0.004   0.056    0.071    4890.0   1.00
+cutpoints_simplex[2]  0.162  0.007   0.149    0.174    5448.0   1.00
+cutpoints_simplex[3]  0.283  0.009   0.267    0.299    4857.0   1.00
+cutpoints_simplex[4]  0.233  0.008   0.217    0.247    5342.0   1.00
+cutpoints_simplex[5]  0.134  0.006   0.123    0.145    5243.0   1.00
+cutpoints_simplex[6]  0.081  0.004   0.073    0.090    5262.0   1.00
+team_strength[0]      1.059  0.142   0.807    1.338     563.0   1.01
+team_strength[1]     -0.388  0.154  -0.679   -0.098     673.0   1.00
+team_strength[2]     -0.202  0.268  -0.698    0.313    2468.0   1.00
+team_strength[3]     -0.330  0.213  -0.752    0.051    1475.0   1.00
+team_strength[4]     -0.340  0.273  -0.849    0.170    2665.0   1.00
+team_strength[5]     -0.319  0.222  -0.729    0.105    1503.0   1.00
+team_strength[6]     -0.182  0.176  -0.490    0.167     846.0   1.00
+team_strength[7]     -0.276  0.217  -0.702    0.111    1324.0   1.00
+team_strength[8]     -0.154  0.175  -0.482    0.173     851.0   1.00
+team_strength[9]     -0.741  0.222  -1.144   -0.325    1284.0   1.00
+team_strength[10]     1.093  0.147   0.818    1.362     570.0   1.01
+team_strength[11]    -0.001  0.155  -0.310    0.273     669.0   1.00
+team_strength[12]     0.454  0.141   0.204    0.738     580.0   1.01
+team_strength[13]    -0.330  0.165  -0.623   -0.004     810.0   1.00
+team_strength[14]    -0.825  0.215  -1.243   -0.435    1492.0   1.00
+team_strength[15]    -0.427  0.190  -0.773   -0.069    1102.0   1.00
+team_strength[16]     0.329  0.164   0.031    0.635     727.0   1.00
+team_strength[17]     1.022  0.143   0.757    1.292     562.0   1.01
+team_strength[18]     1.542  0.145   1.275    1.807     575.0   1.01
+team_strength[19]     1.091  0.141   0.820    1.347     557.0   1.01
+team_strength[20]    -0.363  0.271  -0.875    0.146    2161.0   1.00
+team_strength[21]    -0.074  0.146  -0.345    0.203     603.0   1.01
+team_strength[22]    -0.322  0.169  -0.655   -0.014     885.0   1.00
+team_strength[23]    -0.449  0.186  -0.777   -0.079    1018.0   1.00
+team_strength[24]    -0.510  0.266  -1.000    0.001    2042.0   1.00
+team_strength[25]     0.191  0.150  -0.094    0.463     600.0   1.01
+team_strength[26]    -0.048  0.143  -0.304    0.228     596.0   1.00
+team_strength[27]    -0.210  0.149  -0.481    0.077     633.0   1.00
+team_strength[28]    -0.004  0.148  -0.273    0.280     625.0   1.00
+team_strength[29]     0.910  0.140   0.637    1.165     549.0   1.01
+team_strength[30]    -0.112  0.172  -0.447    0.198     858.0   1.00
+team_strength[31]    -0.100  0.144  -0.373    0.161     573.0   1.01
+team_strength[32]     0.006  0.145  -0.262    0.281     588.0   1.00
+team_strength[33]    -0.333  0.188  -0.671    0.038     995.0   1.00
+team_strength[34]    -0.313  0.194  -0.661    0.051    1096.0   1.00
+team_scale            0.611  0.081   0.465    0.762    3439.0   1.00
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python">az.plot_forest(stan_fit, var_names=<span style="color: #CC9393;">"team_strength"</span>, combined=<span style="color: #BFEBBF;">True</span>)
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="misc/stan_team_strength.png" alt="stan_team_strength.png" />
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org6adef5c" class="outline-2">
+<h2 id="org6adef5c"><span class="section-number-2">5</span> Posterior predictive check</h2>
+<div class="outline-text-2" id="text-5">
+<p>
+Not sure how to implemenent this without copy-pasting some of the model code, would be
+awesome if there is a more automatic way, like when we take prior samples. Much of this
+code is the same as for the prior check, execpt I had to pin the sampling operation to
+the CPU as my (cheap) GPU would run out of memory otherwise.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">cutpoints_simplex</span>, <span style="color: #DFAF8F;">team_scale</span>, <span style="color: #DFAF8F;">team_strength</span> = samples
+
+<span style="color: #DFAF8F;">home_strength</span> = tf.gather(team_strength, home_team, axis=-1)
+<span style="color: #DFAF8F;">away_strength</span> = tf.gather(team_strength, away_team, axis=-1)
+
+<span style="color: #DFAF8F;">posterior_predictive_dist</span> = tfd.OrderedLogistic(
+    cutpoints=make_cutpoints(cutpoints_simplex),
+    loc=home_strength - away_strength,
+)
+
+<span style="color: #F0DFAF; font-weight: bold;">with</span> tf.device(<span style="color: #CC9393;">"/CPU:0"</span>):
+    <span style="color: #DFAF8F;">posterior_predictive_samples</span> = posterior_predictive_dist.sample()
+
+<span style="color: #DFAF8F;">sampled_score_difference_counts</span> = [
+    np.bincount(sample, minlength=7)
+    <span style="color: #F0DFAF; font-weight: bold;">for</span> sample <span style="color: #F0DFAF; font-weight: bold;">in</span> tf.reshape(posterior_predictive_samples, [-1, <span style="color: #DCDCCC; font-weight: bold;">len</span>(soccer_data)])
+]
+
+<span style="color: #DFAF8F;">sampled_mean</span> = np.mean(sampled_score_difference_counts, axis=0)
+<span style="color: #DFAF8F;">sampled_quantiles</span> = np.quantile(
+    sampled_score_difference_counts, q=[0.025, 0.975], axis=0
+)
+
+<span style="color: #DFAF8F;">low_error</span> = sampled_mean - sampled_quantiles[0]
+<span style="color: #DFAF8F;">high_error</span> = sampled_quantiles[1] - sampled_mean
+
+plt.bar(
+    x=np.arange(-3, 4),
+    height=obsered_score_difference_counts,
+    label=<span style="color: #CC9393;">"observed data"</span>,
+    color=<span style="color: #CC9393;">"blue"</span>,
+)
+
+plt.errorbar(
+    x=np.arange(-3, 4),
+    y=sampled_mean,
+    yerr=[low_error, high_error],
+    fmt=<span style="color: #CC9393;">"o"</span>,
+    label=<span style="color: #CC9393;">"simulated data"</span>,
+    color=<span style="color: #CC9393;">"red"</span>,
+    capsize=5,
+)
+
+plt.legend(loc=<span style="color: #CC9393;">"upper left"</span>)
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="misc/posterior_samples.png" alt="posterior_samples.png" />
+</p>
+</div>
+
+<p>
+So no obvious problems with the model in this test!
+</p>
+</div>
+</div>
+
+<div id="outline-container-org87090a9" class="outline-2">
+<h2 id="org87090a9"><span class="section-number-2">6</span> Conclusion</h2>
+<div class="outline-text-2" id="text-6">
+<p>
+I've skipped over a bunch of details in the code here, but hopefully this shows how one
+might start using the new <code>OrderedLogistic</code> class in TFP and serves as another example
+of how to run NUTS in TFP with a comparison with Stan.
+</p>
+</div>
+</div>

@@ -1,3 +1,10 @@
+---
+layout: post
+title: "The ordered logistic distribution"
+permalink: /:title/
+tags: [tensorflow, stan, soccer]
+---
+
 <div id="table-of-contents">
 <h2>Table of Contents</h2>
 <div id="text-table-of-contents">
@@ -11,12 +18,6 @@
 </ul>
 </div>
 </div>
----
-layout: post
-title: "The ordered logistic distribution"
-permalink: /:title/
-tags: [tensorflow, stan, soccer]
----
 
 <p>
 I was very pleased to wake up the other day to find that some code I wrote for the
@@ -243,7 +244,7 @@ plt.legend(loc=<span style="color: #CC9393;">"upper left"</span>)
 
 
 <div class="figure">
-<p><img src="misc/prior_samples.png" alt="prior_samples.png" />
+<p><img src="../img/prior_samples.png" alt="prior_samples.png" />
 </p>
 </div>
 
@@ -336,10 +337,7 @@ chains (and half the number of results) compared to the stan code below.
 </div>
 
 <pre class="example">
-WARNING:tensorflow:From /home/jeff/.virtualenvs/ordered/lib/python3.6/site-packages/tensorflow_core/python/ops/linalg/linear_operator_diag.py:166: calling LinearOperator.__init__ (from tensorflow.python.ops.linalg.linear_operator) with graph_parents is deprecated and will be removed in a future version.
-Instructions for updating:
-Do not pass `graph_parents`.  They will  no longer be used.
-TFP took 324.66 seconds
+TFP took 332.30 seconds
 
 </pre>
 
@@ -391,49 +389,49 @@ As per usual I use <a href="https://github.com/arviz-devs/arviz">arviz</a> to ex
 
 <pre class="example">
                        mean     sd  hpd_3%  hpd_97%  ess_bulk  r_hat
-cutpoints_simplex[0]  0.042  0.003   0.036    0.047    5574.0   1.00
-cutpoints_simplex[1]  0.064  0.004   0.057    0.072    5260.0   1.00
-cutpoints_simplex[2]  0.162  0.006   0.150    0.174    5416.0   1.00
-cutpoints_simplex[3]  0.284  0.008   0.267    0.299    5379.0   1.00
-cutpoints_simplex[4]  0.233  0.008   0.219    0.249    5101.0   1.00
-cutpoints_simplex[5]  0.134  0.006   0.124    0.146    5217.0   1.00
-cutpoints_simplex[6]  0.081  0.005   0.073    0.090   10551.0   1.00
-team_scale            0.614  0.083   0.478    0.776    6232.0   1.00
-team_strength[0]      1.048  0.140   0.796    1.317    1347.0   1.01
-team_strength[1]     -0.401  0.149  -0.679   -0.129    1591.0   1.01
-team_strength[2]     -0.210  0.263  -0.717    0.270    2421.0   1.01
-team_strength[3]     -0.341  0.215  -0.741    0.050    2677.0   1.00
-team_strength[4]     -0.351  0.279  -0.881    0.167    2472.0   1.00
-team_strength[5]     -0.326  0.220  -0.753    0.066    2747.0   1.00
-team_strength[6]     -0.194  0.178  -0.519    0.137    2189.0   1.00
-team_strength[7]     -0.289  0.210  -0.662    0.122    2588.0   1.00
-team_strength[8]     -0.165  0.169  -0.487    0.152    1979.0   1.01
-team_strength[9]     -0.748  0.216  -1.153   -0.346    2589.0   1.00
-team_strength[10]     1.082  0.141   0.808    1.333    1350.0   1.01
-team_strength[11]    -0.011  0.152  -0.305    0.268    1740.0   1.01
-team_strength[12]     0.444  0.138   0.192    0.714    1296.0   1.01
-team_strength[13]    -0.341  0.164  -0.635   -0.015    1926.0   1.01
-team_strength[14]    -0.837  0.213  -1.250   -0.442    2614.0   1.00
-team_strength[15]    -0.441  0.186  -0.808   -0.107    2288.0   1.00
-team_strength[16]     0.318  0.162   0.015    0.625    1687.0   1.01
-team_strength[17]     1.012  0.144   0.746    1.281    1488.0   1.01
-team_strength[18]     1.531  0.144   1.253    1.800    1373.0   1.01
-team_strength[19]     1.081  0.139   0.816    1.339    1330.0   1.01
-team_strength[20]    -0.374  0.267  -0.889    0.104    2187.0   1.00
-team_strength[21]    -0.086  0.142  -0.331    0.200    1430.0   1.01
-team_strength[22]    -0.333  0.170  -0.647   -0.012    2020.0   1.00
-team_strength[23]    -0.459  0.184  -0.799   -0.115    2174.0   1.00
-team_strength[24]    -0.521  0.264  -1.015   -0.031    2817.0   1.00
-team_strength[25]     0.181  0.146  -0.080    0.467    1590.0   1.01
-team_strength[26]    -0.060  0.142  -0.332    0.199    1358.0   1.01
-team_strength[27]    -0.221  0.150  -0.522    0.049    1588.0   1.01
-team_strength[28]    -0.014  0.148  -0.292    0.262    1586.0   1.01
-team_strength[29]     0.901  0.141   0.637    1.165    1383.0   1.01
-team_strength[30]    -0.121  0.170  -0.443    0.193    1922.0   1.00
-team_strength[31]    -0.112  0.141  -0.374    0.155    1394.0   1.01
-team_strength[32]    -0.005  0.144  -0.287    0.255    1490.0   1.01
-team_strength[33]    -0.343  0.192  -0.698    0.020    2215.0   1.00
-team_strength[34]    -0.325  0.189  -0.712    0.000    2313.0   1.00
+cutpoints_simplex[0]  0.042  0.003   0.037    0.048    5925.0   1.00
+cutpoints_simplex[1]  0.064  0.004   0.057    0.072    5293.0   1.00
+cutpoints_simplex[2]  0.162  0.006   0.150    0.174    5619.0   1.00
+cutpoints_simplex[3]  0.283  0.008   0.268    0.300    5471.0   1.00
+cutpoints_simplex[4]  0.233  0.008   0.218    0.247    5699.0   1.00
+cutpoints_simplex[5]  0.134  0.006   0.124    0.145    5214.0   1.00
+cutpoints_simplex[6]  0.081  0.004   0.073    0.090   11323.0   1.00
+team_scale            0.614  0.081   0.476    0.771    6287.0   1.00
+team_strength[0]      1.049  0.142   0.796    1.331    1458.0   1.00
+team_strength[1]     -0.401  0.149  -0.681   -0.120    1719.0   1.00
+team_strength[2]     -0.210  0.265  -0.692    0.297    2393.0   1.00
+team_strength[3]     -0.337  0.215  -0.734    0.065    2723.0   1.00
+team_strength[4]     -0.350  0.275  -0.901    0.148    2380.0   1.00
+team_strength[5]     -0.329  0.217  -0.737    0.072    2710.0   1.00
+team_strength[6]     -0.193  0.171  -0.491    0.149    2278.0   1.01
+team_strength[7]     -0.292  0.211  -0.689    0.102    2686.0   1.00
+team_strength[8]     -0.164  0.166  -0.479    0.147    2061.0   1.00
+team_strength[9]     -0.756  0.222  -1.166   -0.333    2739.0   1.00
+team_strength[10]     1.083  0.139   0.823    1.339    1550.0   1.00
+team_strength[11]    -0.010  0.151  -0.296    0.270    1773.0   1.00
+team_strength[12]     0.445  0.137   0.194    0.700    1484.0   1.00
+team_strength[13]    -0.341  0.162  -0.632   -0.028    2087.0   1.00
+team_strength[14]    -0.840  0.222  -1.250   -0.415    2916.0   1.00
+team_strength[15]    -0.439  0.188  -0.790   -0.088    2429.0   1.00
+team_strength[16]     0.318  0.158   0.031    0.624    2019.0   1.00
+team_strength[17]     1.012  0.140   0.736    1.265    1583.0   1.00
+team_strength[18]     1.532  0.139   1.277    1.796    1482.0   1.00
+team_strength[19]     1.080  0.139   0.824    1.353    1500.0   1.00
+team_strength[20]    -0.376  0.265  -0.899    0.096    2351.0   1.00
+team_strength[21]    -0.084  0.142  -0.350    0.178    1593.0   1.00
+team_strength[22]    -0.333  0.170  -0.658   -0.019    2085.0   1.00
+team_strength[23]    -0.459  0.181  -0.792   -0.115    2304.0   1.00
+team_strength[24]    -0.522  0.268  -1.030   -0.015    2620.0   1.00
+team_strength[25]     0.185  0.146  -0.087    0.467    1621.0   1.00
+team_strength[26]    -0.058  0.141  -0.330    0.195    1528.0   1.00
+team_strength[27]    -0.219  0.147  -0.492    0.054    1644.0   1.00
+team_strength[28]    -0.014  0.148  -0.289    0.269    1651.0   1.00
+team_strength[29]     0.901  0.137   0.648    1.172    1446.0   1.00
+team_strength[30]    -0.123  0.169  -0.459    0.173    2384.0   1.00
+team_strength[31]    -0.112  0.142  -0.382    0.156    1488.0   1.00
+team_strength[32]    -0.005  0.143  -0.280    0.259    1529.0   1.00
+team_strength[33]    -0.339  0.188  -0.667    0.029    2465.0   1.00
+team_strength[34]    -0.323  0.189  -0.690    0.016    2448.0   1.00
 </pre>
 
 <div class="org-src-container">
@@ -443,7 +441,7 @@ team_strength[34]    -0.325  0.189  -0.712    0.000    2313.0   1.00
 
 
 <div class="figure">
-<p><img src="misc/stan_team_strength.png" alt="stan_team_strength.png" />
+<p><img src="../img/tfp_team_strength.png" alt="tfp_team_strength.png" />
 </p>
 </div>
 </div>
@@ -517,6 +515,12 @@ distribution so we need to edit some C++ code as per <a href="https://github.com
 </pre>
 </div>
 
+<pre class="example">
+INFO:pystan:COMPILING THE C++ CODE FOR MODEL ordered_model_6d61697e7cef8cc6459dc8f4854acf17 NOW.
+stan took 20.21 seconds
+
+</pre>
+
 <div class="org-src-container">
 <pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">print</span>(az.summary(stan_fit).<span style="color: #DCDCCC; font-weight: bold;">filter</span>(items=summary_vars))
 </pre>
@@ -524,49 +528,49 @@ distribution so we need to edit some C++ code as per <a href="https://github.com
 
 <pre class="example">
                        mean     sd  hpd_3%  hpd_97%  ess_bulk  r_hat
-cutpoints_simplex[0]  0.042  0.003   0.036    0.048    4763.0   1.00
-cutpoints_simplex[1]  0.064  0.004   0.056    0.071    4890.0   1.00
-cutpoints_simplex[2]  0.162  0.007   0.149    0.174    5448.0   1.00
-cutpoints_simplex[3]  0.283  0.009   0.267    0.299    4857.0   1.00
-cutpoints_simplex[4]  0.233  0.008   0.217    0.247    5342.0   1.00
-cutpoints_simplex[5]  0.134  0.006   0.123    0.145    5243.0   1.00
-cutpoints_simplex[6]  0.081  0.004   0.073    0.090    5262.0   1.00
-team_strength[0]      1.059  0.142   0.807    1.338     563.0   1.01
-team_strength[1]     -0.388  0.154  -0.679   -0.098     673.0   1.00
-team_strength[2]     -0.202  0.268  -0.698    0.313    2468.0   1.00
-team_strength[3]     -0.330  0.213  -0.752    0.051    1475.0   1.00
-team_strength[4]     -0.340  0.273  -0.849    0.170    2665.0   1.00
-team_strength[5]     -0.319  0.222  -0.729    0.105    1503.0   1.00
-team_strength[6]     -0.182  0.176  -0.490    0.167     846.0   1.00
-team_strength[7]     -0.276  0.217  -0.702    0.111    1324.0   1.00
-team_strength[8]     -0.154  0.175  -0.482    0.173     851.0   1.00
-team_strength[9]     -0.741  0.222  -1.144   -0.325    1284.0   1.00
-team_strength[10]     1.093  0.147   0.818    1.362     570.0   1.01
-team_strength[11]    -0.001  0.155  -0.310    0.273     669.0   1.00
-team_strength[12]     0.454  0.141   0.204    0.738     580.0   1.01
-team_strength[13]    -0.330  0.165  -0.623   -0.004     810.0   1.00
-team_strength[14]    -0.825  0.215  -1.243   -0.435    1492.0   1.00
-team_strength[15]    -0.427  0.190  -0.773   -0.069    1102.0   1.00
-team_strength[16]     0.329  0.164   0.031    0.635     727.0   1.00
-team_strength[17]     1.022  0.143   0.757    1.292     562.0   1.01
-team_strength[18]     1.542  0.145   1.275    1.807     575.0   1.01
-team_strength[19]     1.091  0.141   0.820    1.347     557.0   1.01
-team_strength[20]    -0.363  0.271  -0.875    0.146    2161.0   1.00
-team_strength[21]    -0.074  0.146  -0.345    0.203     603.0   1.01
-team_strength[22]    -0.322  0.169  -0.655   -0.014     885.0   1.00
-team_strength[23]    -0.449  0.186  -0.777   -0.079    1018.0   1.00
-team_strength[24]    -0.510  0.266  -1.000    0.001    2042.0   1.00
-team_strength[25]     0.191  0.150  -0.094    0.463     600.0   1.01
-team_strength[26]    -0.048  0.143  -0.304    0.228     596.0   1.00
-team_strength[27]    -0.210  0.149  -0.481    0.077     633.0   1.00
-team_strength[28]    -0.004  0.148  -0.273    0.280     625.0   1.00
-team_strength[29]     0.910  0.140   0.637    1.165     549.0   1.01
-team_strength[30]    -0.112  0.172  -0.447    0.198     858.0   1.00
-team_strength[31]    -0.100  0.144  -0.373    0.161     573.0   1.01
-team_strength[32]     0.006  0.145  -0.262    0.281     588.0   1.00
-team_strength[33]    -0.333  0.188  -0.671    0.038     995.0   1.00
-team_strength[34]    -0.313  0.194  -0.661    0.051    1096.0   1.00
-team_scale            0.611  0.081   0.465    0.762    3439.0   1.00
+cutpoints_simplex[0]  0.042  0.003   0.036    0.048    5557.0   1.00
+cutpoints_simplex[1]  0.064  0.004   0.056    0.071    5888.0   1.00
+cutpoints_simplex[2]  0.162  0.006   0.150    0.174    5872.0   1.00
+cutpoints_simplex[3]  0.283  0.009   0.267    0.299    5085.0   1.00
+cutpoints_simplex[4]  0.233  0.008   0.218    0.248    5361.0   1.00
+cutpoints_simplex[5]  0.134  0.006   0.123    0.145    5422.0   1.00
+cutpoints_simplex[6]  0.081  0.004   0.073    0.090    5853.0   1.00
+team_strength[0]      1.051  0.144   0.775    1.310     623.0   1.01
+team_strength[1]     -0.397  0.154  -0.682   -0.111     702.0   1.01
+team_strength[2]     -0.208  0.266  -0.709    0.290    1989.0   1.00
+team_strength[3]     -0.337  0.215  -0.751    0.056    1416.0   1.00
+team_strength[4]     -0.349  0.280  -0.851    0.180    2480.0   1.00
+team_strength[5]     -0.325  0.222  -0.734    0.087    1556.0   1.00
+team_strength[6]     -0.193  0.176  -0.523    0.128     969.0   1.00
+team_strength[7]     -0.288  0.207  -0.673    0.104    1219.0   1.00
+team_strength[8]     -0.163  0.174  -0.494    0.159     936.0   1.01
+team_strength[9]     -0.752  0.215  -1.159   -0.342    1502.0   1.00
+team_strength[10]     1.085  0.144   0.833    1.367     639.0   1.01
+team_strength[11]    -0.008  0.156  -0.304    0.270     751.0   1.01
+team_strength[12]     0.446  0.141   0.185    0.705     639.0   1.01
+team_strength[13]    -0.338  0.165  -0.646   -0.036     922.0   1.01
+team_strength[14]    -0.836  0.217  -1.226   -0.417    1568.0   1.00
+team_strength[15]    -0.435  0.188  -0.781   -0.072    1142.0   1.00
+team_strength[16]     0.321  0.161   0.010    0.606     794.0   1.00
+team_strength[17]     1.014  0.145   0.746    1.281     643.0   1.01
+team_strength[18]     1.534  0.147   1.249    1.799     663.0   1.01
+team_strength[19]     1.083  0.142   0.798    1.331     640.0   1.01
+team_strength[20]    -0.370  0.267  -0.900    0.113    2157.0   1.00
+team_strength[21]    -0.083  0.148  -0.366    0.187     690.0   1.01
+team_strength[22]    -0.329  0.173  -0.633    0.017     980.0   1.00
+team_strength[23]    -0.453  0.188  -0.819   -0.111    1026.0   1.00
+team_strength[24]    -0.516  0.267  -0.991    0.001    2467.0   1.00
+team_strength[25]     0.183  0.151  -0.096    0.470     691.0   1.01
+team_strength[26]    -0.054  0.145  -0.324    0.218     645.0   1.01
+team_strength[27]    -0.219  0.152  -0.505    0.064     704.0   1.01
+team_strength[28]    -0.010  0.152  -0.299    0.283     762.0   1.01
+team_strength[29]     0.902  0.143   0.628    1.168     629.0   1.01
+team_strength[30]    -0.121  0.174  -0.441    0.217     972.0   1.00
+team_strength[31]    -0.109  0.142  -0.373    0.164     621.0   1.01
+team_strength[32]    -0.002  0.148  -0.297    0.261     663.0   1.01
+team_strength[33]    -0.342  0.189  -0.707   -0.001    1136.0   1.00
+team_strength[34]    -0.324  0.191  -0.677    0.032    1085.0   1.00
+team_scale            0.613  0.085   0.466    0.774    4104.0   1.00
 </pre>
 
 <div class="org-src-container">
@@ -576,7 +580,7 @@ team_scale            0.611  0.081   0.465    0.762    3439.0   1.00
 
 
 <div class="figure">
-<p><img src="misc/stan_team_strength.png" alt="stan_team_strength.png" />
+<p><img src="../img/stan_team_strength.png" alt="stan_team_strength.png" />
 </p>
 </div>
 </div>
@@ -642,7 +646,7 @@ plt.legend(loc=<span style="color: #CC9393;">"upper left"</span>)
 
 
 <div class="figure">
-<p><img src="misc/posterior_samples.png" alt="posterior_samples.png" />
+<p><img src="../img/posterior_samples.png" alt="posterior_samples.png" />
 </p>
 </div>
 

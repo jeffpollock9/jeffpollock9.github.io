@@ -98,7 +98,7 @@ tfp: 0.10.0-dev20200214
             <span style="color: #CC9393;">"FTAG"</span>: <span style="color: #CC9393;">"away_goals"</span>,
         }
     )
-    .<span style="color: #DCDCCC; font-weight: bold;">filter</span>(regex=<span style="color: #CC9393;">"^home_|^away"</span>)
+    .<span style="color: #DCDCCC; font-weight: bold;">filter</span>(regex=<span style="color: #CC9393;">"^home_|^away_"</span>)
     .dropna()
     .astype({<span style="color: #CC9393;">"home_goals"</span>: np.int32, <span style="color: #CC9393;">"away_goals"</span>: np.int32})
     .assign(

@@ -77,7 +77,7 @@ release:
               "FTAG": "away_goals",
           }
       )
-      .filter(regex="^home_|^away")
+      .filter(regex="^home_|^away_")
       .dropna()
       .astype({"home_goals": np.int32, "away_goals": np.int32})
       .assign(

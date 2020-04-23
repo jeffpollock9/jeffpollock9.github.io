@@ -1,0 +1,282 @@
+---
+layout: post
+title: "sample all the distributions"
+permalink: /:title/
+tags: [tensorflow]
+---
+
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#org1e289f4">1. Setup</a></li>
+<li><a href="#org219c116">2. Model definition</a></li>
+<li><a href="#org2d3ba3a">3. Sampling the prior predictive distribution</a></li>
+<li><a href="#org5dc65f0">4. Run MCMC</a></li>
+<li><a href="#org79e0a42">5. Sampling the posterior predictive distribution</a></li>
+</ul>
+</div>
+</div>
+
+<p>
+Thanks to <a href="https://groups.google.com/a/tensorflow.org/forum/?utm_medium=email&amp;utm_source=footer#!msg/tfprobability/ZpqLyA_89GU/Ir3KEn0kAgAJ">this thread</a> I recently learned about the
+<a href="https://www.tensorflow.org/probability/api_docs/python/tfp/distributions/JointDistribution#sample_distributions">JointDistribution.sample<sub>distributions</sub></a> member function and it's something I've really
+wanted for a while.
+</p>
+
+<p>
+My workflow used to be as is described in the thread and I've been annoyed that I had to
+re-implement some of my model after obtaining posterior samples in order to do stuff
+like posterior predictive checks. Simply running <code>model.sample()</code> would sample new
+values from the prior of my parameters when I wanted to use the posterior samples which
+I had. An example of this is in my <a href="https://jeffpollock9.github.io/the-ordered-logistic-distribution/#orgb66a6d2">ordered logistic post</a>.
+</p>
+
+<p>
+Anyway, the <code>value</code> argument in <code>sample_distributions</code> handles all of this nicely,
+here's an example of how it works with a bernoulli glm:
+</p>
+
+<div id="outline-container-org1e289f4" class="outline-2">
+<h2 id="org1e289f4"><span class="section-number-2">1</span> Setup</h2>
+<div class="outline-text-2" id="text-1">
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> tensorflow <span style="color: #F0DFAF; font-weight: bold;">as</span> tf
+<span style="color: #F0DFAF; font-weight: bold;">import</span> tensorflow_probability <span style="color: #F0DFAF; font-weight: bold;">as</span> tfp
+<span style="color: #F0DFAF; font-weight: bold;">import</span> time <span style="color: #F0DFAF; font-weight: bold;">as</span> tm
+<span style="color: #F0DFAF; font-weight: bold;">import</span> matplotlib.pyplot <span style="color: #F0DFAF; font-weight: bold;">as</span> plt
+<span style="color: #F0DFAF; font-weight: bold;">import</span> numpy <span style="color: #F0DFAF; font-weight: bold;">as</span> np
+
+<span style="color: #DFAF8F;">plt.rcParams</span>[<span style="color: #CC9393;">"figure.figsize"</span>] = (12, 8)
+
+<span style="color: #DFAF8F;">tfd</span> = tfp.distributions
+<span style="color: #DFAF8F;">tfl</span> = tf.linalg
+
+<span style="color: #DFAF8F;">N</span> = 10_000
+<span style="color: #DFAF8F;">P</span> = 20
+
+<span style="color: #DFAF8F;">intercept_true</span> = tfd.Normal(loc=0.666, scale=1.0).sample()
+<span style="color: #DFAF8F;">coefficients_true</span> = tfd.Normal(loc=0.0, scale=3.14).sample(P)
+
+<span style="color: #DFAF8F;">x</span> = tfd.Normal(loc=0.0, scale=1.0).sample([N, P])
+<span style="color: #DFAF8F;">y</span> = tfd.Bernoulli(intercept_true + tfl.matvec(x, coefficients_true)).sample()
+
+<span style="color: #DFAF8F;">Root</span> = tfd.JointDistributionCoroutine.Root
+
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"tf: {tf.__version__}"</span>)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"tfp: {tfp.__version__}"</span>)
+</pre>
+</div>
+
+<pre class="example">
+tf: 2.2.0-dev20200416
+tfp: 0.11.0-dev20200416
+
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org219c116" class="outline-2">
+<h2 id="org219c116"><span class="section-number-2">2</span> Model definition</h2>
+<div class="outline-text-2" id="text-2">
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">model</span>():
+    <span style="color: #DFAF8F;">intercept</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> Root(tfd.Normal(loc=0.0, scale=10.0))
+    <span style="color: #DFAF8F;">coefficients</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> Root(
+        tfd.MultivariateNormalLinearOperator(scale=tfl.LinearOperatorIdentity(P))
+    )
+    <span style="color: #DFAF8F;">y</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.Independent(
+        tfd.Bernoulli(intercept[..., tf.newaxis] + tfl.matvec(x, coefficients)),
+        reinterpreted_batch_ndims=1,
+    )
+
+
+<span style="color: #DFAF8F;">joint_dist</span> = tfd.JointDistributionCoroutine(model)
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org2d3ba3a" class="outline-2">
+<h2 id="org2d3ba3a"><span class="section-number-2">3</span> Sampling the prior predictive distribution</h2>
+<div class="outline-text-2" id="text-3">
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">plot_ppc</span>(y, y_rep):
+    <span style="color: #DFAF8F;">sampled_counts</span> = [np.bincount(sample, minlength=2) <span style="color: #F0DFAF; font-weight: bold;">for</span> sample <span style="color: #F0DFAF; font-weight: bold;">in</span> y_rep]
+    <span style="color: #DFAF8F;">observed_counts</span> = np.bincount(y)
+
+    <span style="color: #DFAF8F;">sampled_mean</span> = np.mean(sampled_counts, axis=0)
+    <span style="color: #DFAF8F;">sampled_quantiles</span> = np.quantile(sampled_counts, q=[0.025, 0.975], axis=0)
+
+    <span style="color: #DFAF8F;">low_error</span> = sampled_mean - sampled_quantiles[0]
+    <span style="color: #DFAF8F;">high_error</span> = sampled_quantiles[1] - sampled_mean
+
+    plt.bar(
+        x=[0, 1], height=observed_counts, label=<span style="color: #CC9393;">"observed data"</span>, color=<span style="color: #CC9393;">"blue"</span>,
+    )
+
+    plt.errorbar(
+        x=[0, 1],
+        y=sampled_mean,
+        yerr=[low_error, high_error],
+        fmt=<span style="color: #CC9393;">"o"</span>,
+        label=<span style="color: #CC9393;">"simulated data"</span>,
+        color=<span style="color: #CC9393;">"red"</span>,
+        capsize=5,
+    )
+
+    plt.legend(loc=<span style="color: #CC9393;">"upper left"</span>)
+    plt.xlabel(<span style="color: #CC9393;">"y"</span>)
+    plt.ylabel(<span style="color: #CC9393;">"frequency"</span>)
+
+
+<span style="color: #DFAF8F;">prior_intercept</span>, <span style="color: #DFAF8F;">prior_cofficients</span>, <span style="color: #DFAF8F;">prior_y</span> = joint_dist.sample(1_000)
+
+plot_ppc(y, prior_y)
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/prior_sample_distributions.png" alt="prior_sample_distributions.png" />
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org5dc65f0" class="outline-2">
+<h2 id="org5dc65f0"><span class="section-number-2">4</span> Run MCMC</h2>
+<div class="outline-text-2" id="text-4">
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">target_log_prob_fn</span>(*state):
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> joint_dist.log_prob(<span style="color: #DCDCCC; font-weight: bold;">list</span>(state) + [y])
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">trace_fn</span>(states, pkr):
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> (
+        pkr.inner_results.target_log_prob,
+        pkr.inner_results.leapfrogs_taken,
+        pkr.inner_results.has_divergence,
+        pkr.inner_results.energy,
+        pkr.inner_results.log_accept_ratio,
+    )
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">step_size_setter_fn</span>(pkr, new_step_size):
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> pkr._replace(step_size=new_step_size)
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">step_size_getter_fn</span>(pkr):
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> pkr.step_size
+
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">log_accept_prob_getter_fn</span>(pkr):
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> pkr.log_accept_ratio
+
+
+<span style="color: #DFAF8F;">num_chains</span> = 6
+<span style="color: #DFAF8F;">initial_state</span> = <span style="color: #DCDCCC; font-weight: bold;">list</span>(joint_dist.sample(num_chains)[:-1])
+<span style="color: #DFAF8F;">initial_step_size</span> = [0.1] * <span style="color: #DCDCCC; font-weight: bold;">len</span>(initial_state)
+
+<span style="color: #DFAF8F;">nuts</span> = tfp.mcmc.NoUTurnSampler(target_log_prob_fn, step_size=initial_step_size)
+
+<span style="color: #DFAF8F;">adaptive_nuts</span> = tfp.mcmc.DualAveragingStepSizeAdaptation(
+    inner_kernel=nuts,
+    num_adaptation_steps=800,
+    target_accept_prob=0.8,
+    step_size_setter_fn=step_size_setter_fn,
+    step_size_getter_fn=step_size_getter_fn,
+    log_accept_prob_getter_fn=log_accept_prob_getter_fn,
+)
+
+
+<span style="color: #7CB8BB;">@tf.function</span>(autograph=<span style="color: #BFEBBF;">False</span>, experimental_compile=<span style="color: #BFEBBF;">True</span>)
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">run_mcmc</span>():
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> tfp.mcmc.sample_chain(
+        num_results=1_000,
+        current_state=initial_state,
+        num_burnin_steps=1_000,
+        kernel=adaptive_nuts,
+        trace_fn=trace_fn,
+    )
+
+
+<span style="color: #DFAF8F;">s</span> = tm.time()
+<span style="color: #DFAF8F;">mcmc_samples</span>, <span style="color: #DFAF8F;">mcmc_stats</span> = run_mcmc()
+<span style="color: #DFAF8F;">e</span> = tm.time()
+
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"run_mcmc finished in {e - s:.2f} seconds"</span>)
+</pre>
+</div>
+
+<pre class="example">
+run_mcmc finished in 28.60 seconds
+
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org79e0a42" class="outline-2">
+<h2 id="org79e0a42"><span class="section-number-2">5</span> Sampling the posterior predictive distribution</h2>
+<div class="outline-text-2" id="text-5">
+<p>
+And here is the magic:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">posterior_distributions</span>, <span style="color: #DFAF8F;">posterior_samples</span> = joint_dist.sample_distributions(value=mcmc_samples + [<span style="color: #BFEBBF;">None</span>])
+</pre>
+</div>
+
+<p>
+<code>posterior_samples</code> now contains the samples the MCMC routine gave us earlier for the
+intercept and coefficients parameters:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"intercept: {np.allclose(posterior_samples[0], mcmc_samples[0])}"</span>)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"coefficients: {np.allclose(posterior_samples[1], mcmc_samples[1])}"</span>)
+</pre>
+</div>
+
+<pre class="example">
+intercept: True
+coefficients: True
+
+</pre>
+
+<p>
+and we have sampled from our Bernoulli observation model using our posterior/MCMC
+samples, so the (very basic) posterior predictive check now looks like:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">posterior_y</span> = tf.reshape(posterior_samples[-1], [-1, N])
+
+plot_ppc(y, posterior_y)
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/posterior_sample_distributions.png" alt="posterior_sample_distributions.png" />
+</p>
+</div>
+
+<p>
+Additionally, we can also easily calculate useful stuff like the "log-likelihood" matrix
+needed for <a href="http://mc-stan.org/loo/articles/loo2-with-rstan.html">LOO</a>:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">log_lik</span> = posterior_distributions[-1].log_prob(y)
+</pre>
+</div>
+
+<p>
+It always annoyed me in stan when I had to re-write the observation model in the
+generated quantities block to calculate this, and the same for TensorFlow Probability
+until now.
+</p>
+</div>
+</div>

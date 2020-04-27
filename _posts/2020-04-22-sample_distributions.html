@@ -269,9 +269,15 @@ needed for <a href="http://mc-stan.org/loo/articles/loo2-with-rstan.html">LOO</a
 </p>
 
 <div class="org-src-container">
-<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">log_lik</span> = posterior_distributions[-1].log_prob(y)
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">log_lik</span> = posterior_distributions[-1].distribution.log_prob(y)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(log_lik.shape) <span style="color: #5F7F5F;"># </span><span style="color: #7F9F7F;">(draws, chains, num_observations)</span>
 </pre>
 </div>
+
+<pre class="example">
+(1000, 6, 10000)
+
+</pre>
 
 <p>
 It always annoyed me in stan when I had to re-write the observation model in the

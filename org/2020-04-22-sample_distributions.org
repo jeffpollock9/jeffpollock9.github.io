@@ -222,10 +222,12 @@ Additionally, we can also easily calculate useful stuff like the "log-likelihood
 needed for [[http://mc-stan.org/loo/articles/loo2-with-rstan.html][LOO]]:
 
 #+BEGIN_SRC jupyter-python :results output :exports both
-  log_lik = posterior_distributions[-1].log_prob(y)
+  log_lik = posterior_distributions[-1].distribution.log_prob(y)
+  print(log_lik.shape) # (draws, chains, num_observations)
 #+END_SRC
 
 #+RESULTS:
+: (1000, 6, 10000)
 
 It always annoyed me in stan when I had to re-write the observation model in the
 generated quantities block to calculate this, and the same for TensorFlow Probability

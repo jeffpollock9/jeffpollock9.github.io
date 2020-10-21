@@ -1,0 +1,322 @@
+---
+layout: post
+title: "almost always auto (batched)"
+permalink: /:title/
+tags: [tensorflow]
+---
+
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#orgc1c1879">1. Data</a></li>
+<li><a href="#org6209943">2. Model</a></li>
+<li><a href="#org9d76e05">3. Two ways to write the model in code</a></li>
+<li><a href="#orge39b76b">4. Do we get the same log-probabilities?</a></li>
+<li><a href="#orgd9cf3f8">5. Do we get the same speeds?</a></li>
+<li><a href="#org923e7c1">6. Conclusion</a></li>
+</ul>
+</div>
+</div>
+
+<p>
+In this post I have a look at the <a href="https://www.tensorflow.org/probability/api_docs/python/tfp/distributions/JointDistributionCoroutineAutoBatched">JointDistributionCoroutineAutoBatched</a> class in
+TensorFlow Probability. The title is based on <a href="https://herbsutter.com/2013/08/12/gotw-94-solution-aaa-style-almost-always-auto">this</a> C++ article.
+</p>
+
+<p>
+I'm going to attempt to show the difference between
+<a href="https://www.tensorflow.org/probability/api_docs/python/tfp/distributions/JointDistributionCoroutineAutoBatched">JointDistributionCoroutineAutoBatched</a> and <a href="https://www.tensorflow.org/probability/api_docs/python/tfp/distributions/JointDistributionCoroutine">JointDistributionCoroutine</a> by displaying the
+code differences and runtime speed.
+</p>
+
+<p>
+For the official release notes about this feature, see <a href="https://www.tensorflow.org/probability/examples/TFP_Release_Notebook_0_11_0#auto-vectorized_sampling_with_jointdistributionautobatched">here</a>.
+</p>
+
+<div id="outline-container-orgc1c1879" class="outline-2">
+<h2 id="orgc1c1879"><span class="section-number-2">1</span> Data</h2>
+<div class="outline-text-2" id="text-1">
+<p>
+As per usual, I use some football data from <a href="http://football-data.co.uk/">football-data.co.uk</a>, you can see some code
+to download it and process it <a href="https://jeffpollock9.github.io/the-ordered-logistic-distribution/#org52f3055">here</a>.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">num_teams</span> = <span style="color: #DCDCCC; font-weight: bold;">len</span>(team_names)
+<span style="color: #DFAF8F;">home_team</span> = soccer_data[<span style="color: #CC9393;">"home_team"</span>].to_numpy()
+<span style="color: #DFAF8F;">away_team</span> = soccer_data[<span style="color: #CC9393;">"away_team"</span>].to_numpy()
+<span style="color: #DFAF8F;">observed_home_goals</span> = soccer_data[<span style="color: #CC9393;">"home_goals"</span>].to_numpy()
+<span style="color: #DFAF8F;">observed_away_goals</span> = soccer_data[<span style="color: #CC9393;">"away_goals"</span>].to_numpy()
+
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(soccer_data.head())
+</pre>
+</div>
+
+<pre class="example">
+  home_team_name away_team_name  home_goals  away_goals  home_team  away_team
+0    Aston Villa       West Ham           3           0          1         32
+1      Blackburn        Everton           1           0          3         12
+2         Bolton         Fulham           0           0          5         13
+3        Chelsea      West Brom           6           0         10         31
+4     Sunderland     Birmingham           2           2         27          2
+</pre>
+</div>
+</div>
+
+<div id="outline-container-org6209943" class="outline-2">
+<h2 id="org6209943"><span class="section-number-2">2</span> Model</h2>
+<div class="outline-text-2" id="text-2">
+<p>
+Nothing new here, just a simple Poisson model for the observed home and away goals using
+an an intercept and home advantage terms, along with a measure of attacking and
+defensive capabilities for each team in the data.
+</p>
+
+<p>
+In writing the model is:
+</p>
+
+\begin{align*}
+\sigma &\sim HalfNormal(1) \\
+\alpha &\sim Normal(0, \sigma^2) \\
+\beta &\sim Normal(0, \sigma^2) \\
+\psi &\sim Normal(0, 1^2) \\
+\gamma &\sim Normal(0, 1^2) \\
+H &\sim Poisson(\exp(\psi + \gamma + \alpha_i + \beta_j)) \\
+A &\sim Poisson(\exp(\psi + \alpha_j + \beta_i))
+\end{align*}
+
+<p>
+where team \(i\) plays at home to team \(j\). This is a heirarchical model since it has
+"parameters which depend on parameters" - the attack (\(\alpha\)) and defence (\(\beta\))
+depend on the scale (\(\sigma\)). For completeness, \(H\) and \(A\) are the home and away
+goals respectively, \(\psi\) is an intercept term, and \(\gamma\) is a home advantage
+term.
+</p>
+
+<p>
+I use greek letters in this sort of stuff as it is common practice and takes up less
+space, but I prefer to look at the code to see what is going on now, where I try to
+write descriptive names for the parameters.
+</p>
+</div>
+</div>
+
+<div id="outline-container-org9d76e05" class="outline-2">
+<h2 id="org9d76e05"><span class="section-number-2">3</span> Two ways to write the model in code</h2>
+<div class="outline-text-2" id="text-3">
+<p>
+Previously, I'd write the above model in code using something like this:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> tensorflow <span style="color: #F0DFAF; font-weight: bold;">as</span> tf
+<span style="color: #F0DFAF; font-weight: bold;">import</span> tensorflow_probability <span style="color: #F0DFAF; font-weight: bold;">as</span> tfp
+
+<span style="color: #DFAF8F;">tfd</span> = tfp.distributions
+<span style="color: #DFAF8F;">tfl</span> = tf.linalg
+
+<span style="color: #DFAF8F;">Root</span> = tfd.JointDistributionCoroutine.Root
+
+
+<span style="color: #7CB8BB;">@tfd.JointDistributionCoroutine</span>
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">joint_dist</span>():
+    <span style="color: #DFAF8F;">team_ability_scale</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> Root(tfd.HalfNormal(scale=1.0))
+    <span style="color: #DFAF8F;">unit_attack</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> Root(
+        tfd.MultivariateNormalLinearOperator(
+            loc=0.0,
+            scale=tfl.LinearOperatorIdentity(num_rows=num_teams),
+        )
+    )
+    <span style="color: #DFAF8F;">unit_defence</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> Root(
+        tfd.MultivariateNormalLinearOperator(
+            loc=0.0,
+            scale=tfl.LinearOperatorIdentity(num_rows=num_teams),
+        )
+    )
+    <span style="color: #DFAF8F;">intercept</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.Normal(loc=0.0, scale=1.0)
+    <span style="color: #DFAF8F;">home_advantage</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.Normal(loc=0.0, scale=1.0)
+
+    <span style="color: #DFAF8F;">attack</span> = team_ability_scale[..., tf.newaxis] * unit_attack
+    <span style="color: #DFAF8F;">defence</span> = team_ability_scale[..., tf.newaxis] * unit_defence
+
+    <span style="color: #DFAF8F;">home_log_rate</span> = (
+        intercept
+        + home_advantage
+        + tf.gather(attack, home_team, axis=-1)
+        - tf.gather(defence, away_team, axis=-1)
+    )
+
+    <span style="color: #DFAF8F;">away_log_rate</span> = (
+        intercept
+        - home_advantage
+        + tf.gather(attack, away_team, axis=-1)
+        - tf.gather(defence, home_team, axis=-1)
+    )
+
+    <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.Independent(
+        tfd.Poisson(log_rate=home_log_rate), reinterpreted_batch_ndims=1
+    )
+
+    <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.Independent(
+        tfd.Poisson(log_rate=away_log_rate), reinterpreted_batch_ndims=1
+    )
+</pre>
+</div>
+
+<p>
+which has a bunch of stuff in it I'd rather not need to deal with:
+</p>
+
+<ol class="org-ol">
+<li><code>Root</code></li>
+<li><code>MultivariateNormalLinearOperator</code></li>
+<li><code>[..., tf.newaxis]</code></li>
+<li><code>tfd.Independent</code></li>
+</ol>
+
+<p>
+step forward <a href="https://www.tensorflow.org/probability/api_docs/python/tfp/distributions/JointDistributionCoroutineAutoBatched">JointDistributionCoroutineAutoBatched</a>:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #7CB8BB;">@tfd.JointDistributionCoroutineAutoBatched</span>
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">auto_joint_dist</span>():
+    <span style="color: #DFAF8F;">team_ability_scale</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.HalfNormal(scale=1.0)
+    <span style="color: #DFAF8F;">unit_attack</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.Normal(loc=tf.zeros(num_teams), scale=1.0)
+    <span style="color: #DFAF8F;">unit_defence</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.Normal(loc=tf.zeros(num_teams), scale=1.0)
+    <span style="color: #DFAF8F;">intercept</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.Normal(loc=0.0, scale=1.0)
+    <span style="color: #DFAF8F;">home_advantage</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.Normal(loc=0.0, scale=1.0)
+
+    <span style="color: #DFAF8F;">attack</span> = team_ability_scale * unit_attack
+    <span style="color: #DFAF8F;">defence</span> = team_ability_scale * unit_defence
+
+    <span style="color: #DFAF8F;">home_log_rate</span> = (
+        intercept
+        + home_advantage
+        + tf.gather(attack, home_team, axis=-1)
+        - tf.gather(defence, away_team, axis=-1)
+    )
+
+    <span style="color: #DFAF8F;">away_log_rate</span> = (
+        intercept
+        - home_advantage
+        + tf.gather(attack, away_team, axis=-1)
+        - tf.gather(defence, home_team, axis=-1)
+    )
+
+    <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.Poisson(log_rate=home_log_rate)
+    <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.Poisson(log_rate=away_log_rate)
+</pre>
+</div>
+
+<p>
+Now isn't that a lot nicer to read? But I have a question - what's the downside?
+</p>
+</div>
+</div>
+
+<div id="outline-container-orge39b76b" class="outline-2">
+<h2 id="orge39b76b"><span class="section-number-2">4</span> Do we get the same log-probabilities?</h2>
+<div class="outline-text-2" id="text-4">
+<p>
+When running MCMC or similar, we spend most of the time evaluating the log-probability
+(and it's gradient) of some parameters conditioned on the observed data - so this is the
+function I test in the post. Really I should test the gradients as well but I don't have
+loads of time at the moment.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">observed_goals</span> = [observed_home_goals, observed_away_goals]
+
+<span style="color: #7CB8BB;">@tf.function</span>(autograph=<span style="color: #BFEBBF;">False</span>)
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">target_log_prob_fn</span>(*state):
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> joint_dist.log_prob(<span style="color: #DCDCCC; font-weight: bold;">list</span>(state) + observed_goals)
+
+
+<span style="color: #7CB8BB;">@tf.function</span>(autograph=<span style="color: #BFEBBF;">False</span>)
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">auto_target_log_prob_fn</span>(*state):
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> auto_joint_dist.log_prob(<span style="color: #DCDCCC; font-weight: bold;">list</span>(state) + observed_goals)
+
+
+<span style="color: #DFAF8F;">state</span> = joint_dist.sample()[:-2]
+
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"old: {target_log_prob_fn(*state):.6f}"</span>)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"new: {auto_target_log_prob_fn(*state):0.6f}"</span>)
+</pre>
+</div>
+
+<pre class="example">
+old: -16304.628906
+new: -16304.628906
+</pre>
+
+
+<p>
+So no evidence of anything going wrong.
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgd9cf3f8" class="outline-2">
+<h2 id="orgd9cf3f8"><span class="section-number-2">5</span> Do we get the same speeds?</h2>
+<div class="outline-text-2" id="text-5">
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> time <span style="color: #F0DFAF; font-weight: bold;">as</span> tm
+
+<span style="color: #DFAF8F;">warmup</span> = 5
+<span style="color: #DFAF8F;">iterations</span> = 10_000
+
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">benchmark</span>(fn):
+    <span style="color: #F0DFAF; font-weight: bold;">for</span> _ <span style="color: #F0DFAF; font-weight: bold;">in</span> <span style="color: #DCDCCC; font-weight: bold;">range</span>(warmup):
+        <span style="color: #DFAF8F;">_</span> = fn()
+
+    <span style="color: #DFAF8F;">start</span> = tm.time()
+
+    <span style="color: #F0DFAF; font-weight: bold;">for</span> _ <span style="color: #F0DFAF; font-weight: bold;">in</span> <span style="color: #DCDCCC; font-weight: bold;">range</span>(iterations):
+        <span style="color: #DFAF8F;">result</span> = fn()
+
+    <span style="color: #DFAF8F;">end</span> = tm.time()
+
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> end - start, result
+
+
+<span style="color: #DFAF8F;">old_time</span>, <span style="color: #DFAF8F;">old_result</span> = benchmark(<span style="color: #F0DFAF; font-weight: bold;">lambda</span>: target_log_prob_fn(*state))
+<span style="color: #DFAF8F;">new_time</span>, <span style="color: #DFAF8F;">new_result</span> = benchmark(<span style="color: #F0DFAF; font-weight: bold;">lambda</span>: auto_target_log_prob_fn(*state))
+
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"old: {old_time:0.2f} seconds, result: {old_result:.6f}"</span>)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"new: {new_time:0.2f} seconds, result: {new_result:.6f}"</span>)
+</pre>
+</div>
+
+<pre class="example">
+old: 5.32 seconds, result: -16304.628906
+new: 5.16 seconds, result: -16304.628906
+</pre>
+
+
+<p>
+Hmmm! I ran this a few times and it looks like the old way could be a little faster, but
+this is not really conclusive, and the speed of the gradient calculation is probably the
+bottleneck anyway.
+</p>
+</div>
+</div>
+
+<div id="outline-container-org923e7c1" class="outline-2">
+<h2 id="org923e7c1"><span class="section-number-2">6</span> Conclusion</h2>
+<div class="outline-text-2" id="text-6">
+<p>
+I really like this new way of writing models and I would use it wherever possible. The
+downsides are that it might be slower and it relies on <a href="https://www.tensorflow.org/api_docs/python/tf/vectorized_map">tf.vectorized_map</a> - so some
+operations might not be supported. There may also be memory issues but I didn't look at
+that here.
+</p>
+
+<p>
+I'd even happily give up some runtime performance if it reduced the number of shape
+errors I get in my code.
+</p>
+</div>
+</div>

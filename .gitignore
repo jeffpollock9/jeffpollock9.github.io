@@ -14,3 +14,6 @@ ltximg
 
 # tmp stuff
 org/misc
+Gemfile.lock
+
+beautiful-jekyll-theme-*.gem

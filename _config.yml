@@ -18,10 +18,11 @@ title: Jeff Pollock
 
 # Short description of your site
 description: Probably some sort of blog
-title: My Website
 
 # Your name to show in the footer
 author: Jeff Pollock
+
+full-width: true
 
 # --- List of links in the navigation bar --- #
 

@@ -1,0 +1,798 @@
+---
+layout: post
+title: "Bayesian workflow with TFP and arviz"
+permalink: /:title/
+tags: [tensorflow, arviz]
+---
+
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#org349e583">1. Setup</a></li>
+<li><a href="#orgdfaa93b">2. Model</a></li>
+<li><a href="#org90fcf3e">3. Data</a></li>
+<li><a href="#org13425d7">4. Prior predictive check</a></li>
+<li><a href="#org57eb9d8">5. Inference</a></li>
+<li><a href="#orgd16b592">6. Posterior analysis</a></li>
+<li><a href="#org5a74ca7">7. Predicting on new data</a></li>
+<li><a href="#orgbd7ba8d">8. Conclusion</a></li>
+</ul>
+</div>
+</div>
+
+<p>
+This post hopefully contains an end-to-end example of a Bayesian workflow for a simple
+model on some simulated data using <a href="https://www.tensorflow.org/probability">TFP</a> and <a href="https://arviz-devs.github.io/arviz/">arviz</a>. For a more comprehensive guide on such
+a workflow, see e.g. <a href="https://betanalpha.github.io/assets/case_studies/principled_bayesian_workflow.html">Towards A Principled Bayesian Workflow</a>.
+</p>
+
+<p>
+I am hoping to update this post as I find better ways of doing this and new things are
+added to TF/TFP/arviz. At the time of writing, this post isn't quite fleshed out yet.
+</p>
+
+<div id="outline-container-org349e583" class="outline-2">
+<h2 id="org349e583"><span class="section-number-2">1</span> Setup</h2>
+<div class="outline-text-2" id="text-1">
+<p>
+Just some imports and constants, skip this.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">import</span> logging
+
+<span style="color: #F0DFAF; font-weight: bold;">import</span> arviz <span style="color: #F0DFAF; font-weight: bold;">as</span> az
+<span style="color: #F0DFAF; font-weight: bold;">import</span> matplotlib.pyplot <span style="color: #F0DFAF; font-weight: bold;">as</span> plt
+<span style="color: #F0DFAF; font-weight: bold;">import</span> numpy <span style="color: #F0DFAF; font-weight: bold;">as</span> np
+<span style="color: #F0DFAF; font-weight: bold;">import</span> tensorflow <span style="color: #F0DFAF; font-weight: bold;">as</span> tf
+<span style="color: #F0DFAF; font-weight: bold;">import</span> tensorflow_probability <span style="color: #F0DFAF; font-weight: bold;">as</span> tfp
+
+<span style="color: #F0DFAF; font-weight: bold;">from</span> tensorflow_probability.python.internal <span style="color: #F0DFAF; font-weight: bold;">import</span> unnest
+
+<span style="color: #DFAF8F;">plt.rcParams</span>[<span style="color: #CC9393;">"figure.figsize"</span>] = (10, 5)
+
+tf.get_logger().setLevel(logging.ERROR)
+
+<span style="color: #DFAF8F;">tfd</span> = tfp.distributions
+<span style="color: #DFAF8F;">tfl</span> = tf.linalg
+
+<span style="color: #DFAF8F;">N</span> = 2_500
+<span style="color: #DFAF8F;">P</span> = 5
+<span style="color: #DFAF8F;">NUM_CHAINS</span> = 8
+<span style="color: #DFAF8F;">NUM_RESULTS</span> = 1_000
+<span style="color: #DFAF8F;">NUM_BURNIN_STEPS</span> = 1_000
+<span style="color: #DFAF8F;">NUM_PRIOR_SAMPLES</span> = 4096
+<span style="color: #DFAF8F;">INITIAL_STEP_SIZE</span> = 1.0
+<span style="color: #DFAF8F;">PROPORTION_ADAPTION_STEPS</span> = 0.8
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"arviz version: {az.__version__}"</span>)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"TF version: {tf.__version__}"</span>)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"TFP version: {tfp.__version__}"</span>)
+</pre>
+</div>
+
+<pre class="example">
+arviz version: 0.10.0
+TF version: 2.4.0
+TFP version: 0.12.1
+</pre>
+</div>
+</div>
+
+<div id="outline-container-orgdfaa93b" class="outline-2">
+<h2 id="orgdfaa93b"><span class="section-number-2">2</span> Model</h2>
+<div class="outline-text-2" id="text-2">
+<p>
+The model is a boring linear regression:
+</p>
+
+\begin{align*}
+\sigma &\sim Exponential(1) \\
+\alpha &\sim Normal(0, 2.5^2) \\
+\beta &\sim Normal(0, 1.0^2) \\
+Y &\sim Normal(\alpha + X \beta, \sigma^2) \\
+\end{align*}
+
+<p>
+for some design matrix containing \(P\) features/covariates/predictors/whatever denoted by
+\(X\), and we have \(N\) observations denoted by \(Y\). In code:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">make_joint_dist</span>(design_matrix):
+    <span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">joint_dist</span>():
+        <span style="color: #DFAF8F;">intercept</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.Normal(loc=0.0, scale=2.5, name=<span style="color: #CC9393;">"intercept"</span>)
+        <span style="color: #DFAF8F;">coefficients</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.Normal(loc=tf.zeros(P), scale=1.0, name=<span style="color: #CC9393;">"coefficients"</span>)
+        <span style="color: #DFAF8F;">observation_scale</span> = <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.Exponential(rate=1.0, name=<span style="color: #CC9393;">"observation_scale"</span>)
+        <span style="color: #F0DFAF; font-weight: bold;">yield</span> tfd.Normal(
+            loc=intercept + tfl.matvec(design_matrix, coefficients),
+            scale=observation_scale,
+            name=<span style="color: #CC9393;">"observations"</span>,
+        )
+
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> tfd.JointDistributionCoroutineAutoBatched(joint_dist)
+
+
+<span style="color: #DFAF8F;">design_matrix</span> = tfd.Normal(loc=0.0, scale=1.0).sample([N, P])
+<span style="color: #DFAF8F;">joint_dist</span> = make_joint_dist(design_matrix)
+</pre>
+</div>
+
+<p>
+I use a function to create the joint distribution here so that it's easy to make new
+joint distributions for different design matrices, we can see how that works at the end
+once we have some posterior samples.
+</p>
+</div>
+</div>
+
+<div id="outline-container-org90fcf3e" class="outline-2">
+<h2 id="org90fcf3e"><span class="section-number-2">3</span> Data</h2>
+<div class="outline-text-2" id="text-3">
+<p>
+Taking a sample from the joint distribution object will give us some simulated
+observations and the parameters which generated them:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">data</span> = joint_dist.sample()
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(data)
+</pre>
+</div>
+
+<pre class="example">
+StructTuple(
+  intercept=&lt;tf.Tensor: shape=(), dtype=float32, numpy=-0.20901993&gt;,
+  coefficients=&lt;tf.Tensor: shape=(5,), dtype=float32, numpy=
+    array([-2.3835316 , -0.19555189,  0.3054796 ,  0.030938  ,  0.39104107],
+          dtype=float32)&gt;,
+  observation_scale=&lt;tf.Tensor: shape=(), dtype=float32, numpy=1.8365525&gt;,
+  observations=&lt;tf.Tensor: shape=(2500,), dtype=float32, numpy=
+    array([ 4.681982 ,  0.494495 ,  3.3885002, ...,  3.0582027,  1.5004369,
+           -0.6779976], dtype=float32)&gt;
+)
+</pre>
+
+
+<p>
+Working with simulated data like this is nice as you can easily sense check your
+inference by comparing your estimated posterior and the "true" parameter values.
+</p>
+
+<p>
+In most circumstances you of course don't know the underlying mechanism which has
+generated the data, and you don't know the true values of the parameters which generated
+it - this is just an easy way to simulate some data and parameters for an example.
+</p>
+</div>
+</div>
+
+<div id="outline-container-org13425d7" class="outline-2">
+<h2 id="org13425d7"><span class="section-number-2">4</span> Prior predictive check</h2>
+<div class="outline-text-2" id="text-4">
+<p>
+One of the first things to consider doing is a <a href="https://betanalpha.github.io/assets/case_studies/principled_bayesian_workflow.html#113_prior_predictive_checks">prior predictive check</a>. This involved
+sampling observations from our generative model without conditioning on any data. It's
+good to see that the observations generated from the model aren't completely ridiculous
+and also to catch any coding errors early on. It's also really easy to do so there's no
+excuse really:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python">*<span style="color: #DFAF8F;">prior_samples</span>, <span style="color: #DFAF8F;">prior_predictive</span> = joint_dist.sample(NUM_PRIOR_SAMPLES)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(prior_predictive)
+</pre>
+</div>
+
+<pre class="example">
+tf.Tensor(
+[[-3.5205534  -4.528192    0.25591993 ... -4.3896685  -1.5770044
+  -0.7582612 ]
+ [-0.42647317  0.71366215  3.773345   ... -0.9740752  -1.5424446
+   4.6503186 ]
+ [ 4.607047    3.3693523   6.6304727  ...  4.502372    7.3991976
+   6.2240896 ]
+ ...
+ [-3.2436218  -0.72438574 -1.5025095  ... -1.8662915  -3.8655753
+   0.99725056]
+ [ 3.0118685   3.1012888  -1.0712335  ...  3.4267337   0.48165292
+  -1.1030183 ]
+ [ 2.1230254   2.7200956   1.4965906  ...  3.4740658   1.3719496
+   1.5941529 ]], shape=(4096, 2500), dtype=float32)
+</pre>
+
+<p>
+To plot the check we can quickly create an <a href="https://arviz-devs.github.io/arviz/api/generated/arviz.InferenceData.html">arviz.InferenceData</a> object which just
+contains the prior predictive samples and the "real" observations. I always like to give
+names to the dimensions where possible and think it helps with readability. One other
+comment on this is that arviz expects shapes to be of the form: <code>(chain, draw, *shape)</code>
+so we reshape the prior predictive samples to pretend they have one chain:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">prior_trace</span> = az.from_dict(
+    observed_data={<span style="color: #CC9393;">"observations"</span>: data.observations},
+    prior_predictive={<span style="color: #CC9393;">"observations"</span>: prior_predictive[tf.newaxis, ...]},
+    coords={<span style="color: #CC9393;">"observation"</span>: np.arange(N)},
+    dims={<span style="color: #CC9393;">"observations"</span>: [<span style="color: #CC9393;">"observation"</span>]},
+)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(prior_trace.prior_predictive)
+</pre>
+</div>
+
+<pre class="example">
+&lt;xarray.Dataset&gt;
+Dimensions:       (chain: 1, draw: 4096, observation: 2500)
+Coordinates:
+  * chain         (chain) int64 0
+  * draw          (draw) int64 0 1 2 3 4 5 6 ... 4090 4091 4092 4093 4094 4095
+  * observation   (observation) int64 0 1 2 3 4 5 ... 2495 2496 2497 2498 2499
+Data variables:
+    observations  (chain, draw, observation) float32 -3.521 -4.528 ... 1.594
+Attributes:
+    created_at:     2021-01-06T22:23:41.549424
+    arviz_version:  0.10.0
+</pre>
+
+<p>
+Once that object is created, using arviz to do a basic prior predictive check using
+<a href="https://arviz-devs.github.io/arviz/api/generated/arviz.plot_ppc.html">arviz.plot_ppc</a> is easy:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">ax</span> = az.plot_ppc(prior_trace, group=<span style="color: #CC9393;">"prior"</span>, num_pp_samples=500)
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/plot_prior_ppc.png" alt="plot_prior_ppc.png" />
+</p>
+</div>
+
+<p>
+Thankfully this check looks OK - given how we simulated the data anything else would be
+either very unlucky or a bug.
+</p>
+</div>
+</div>
+
+<div id="outline-container-org57eb9d8" class="outline-2">
+<h2 id="org57eb9d8"><span class="section-number-2">5</span> Inference</h2>
+<div class="outline-text-2" id="text-5">
+<p>
+Now that the prior predictive check is done, we can move onto a harder problem -
+conditioning on the data and estimating the posterior distribution of the model
+parameters. Much of the code here is boilerplate and could be lifted into a more generic
+function/library.
+</p>
+
+<p>
+My current favourite way to condition on the "observed" data is to create a (currently
+experimental) <a href="https://www.tensorflow.org/probability/api_docs/python/tfp/experimental/distributions/JointDistributionPinned">JointDistributionPinned</a>, taken from the <a href="https://www.tensorflow.org/probability/api_docs/python/tfp/experimental/distributions/JointDistributionPinned">documentation</a>:
+</p>
+
+<blockquote>
+<p>
+This object represents an unnormalized probability density, and as such is not a
+<code>tfp.distributions.Distribution</code>, and lacks <code>sample</code> and <code>log_prob</code> methods. In their
+place, it provides:
+</p>
+
+<ul class="org-ul">
+<li><code>unnormalized_log_prob</code>, <code>unnormalized_log_prob_parts</code></li>
+<li><code>sample_unpinned</code>, <code>sample_weighted</code></li>
+</ul>
+</blockquote>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">pinned_joint_dist</span> = joint_dist.experimental_pin(observations=data.observations)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(pinned_joint_dist.sample_unpinned())
+</pre>
+</div>
+
+<pre class="example">
+StructTuple(
+  intercept=&lt;tf.Tensor: shape=(), dtype=float32, numpy=1.5575541&gt;,
+  coefficients=&lt;tf.Tensor: shape=(5,), dtype=float32, numpy=
+    array([-1.2378179 ,  0.31099358,  1.6653953 ,  0.20364931,  0.66097695],
+          dtype=float32)&gt;,
+  observation_scale=&lt;tf.Tensor: shape=(), dtype=float32, numpy=0.18035434&gt;
+)
+</pre>
+
+
+<p>
+The first use of this pinned distribution object is to provide some default bijectors
+which allow our MCMC routine to operate on the unconstrained space even though e.g. our
+observation scale (\(\sigma\)) is positive. Stuff like this is handled automatically in
+<a href="https://mc-stan.org/">Stan</a> when you specify bounds on parameters with e.g <code>real&lt;lower = 0&gt; sigma;</code>. These
+default bijectors can be extracted for all the distributions with simply:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">pinned_joint_bijector</span> = pinned_joint_dist.experimental_default_event_space_bijector()
+</pre>
+</div>
+
+<p>
+The second use is to provide a function which returns the unormalised log probability of
+the model parameters (conditioned on the data):
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">target_log_prob_fn</span>(*x):
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> pinned_joint_dist.unnormalized_log_prob(x)
+</pre>
+</div>
+
+<p>
+In this example we use the <a href="https://arxiv.org/abs/1111.4246">No-U-Turn Sampler</a> which can record/trace various useful bits
+of auxiliary information - useful for checking e.g. converge of the MCMC routine. TFP
+allows us to add a so-called trace function which enables us to record anything we want
+about the current state of the chain or the NUTS routine. At the moment I'm only
+recording three statistics and naming them as per the <a href="https://arviz-devs.github.io/arviz/schema/schema.html#sample-stats">arviz sample stats</a>.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">trace_fn</span>(state, kernel_results):
+    <span style="color: #DFAF8F;">mapping</span> = {
+        <span style="color: #CC9393;">"target_log_prob"</span>: <span style="color: #CC9393;">"lp"</span>,
+        <span style="color: #CC9393;">"has_divergence"</span>: <span style="color: #CC9393;">"diverging"</span>,
+        <span style="color: #CC9393;">"energy"</span>: <span style="color: #CC9393;">"energy"</span>,
+    }
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> {v: unnest.get_innermost(kernel_results, k) <span style="color: #F0DFAF; font-weight: bold;">for</span> k, v <span style="color: #F0DFAF; font-weight: bold;">in</span> mapping.items()}
+</pre>
+</div>
+
+<p>
+We later show plots which make use of these values.y
+</p>
+
+<p>
+The <code>unnest</code> module isn't part of the public TFP API - but it does make writing this
+function a lot easier.
+</p>
+
+<p>
+We need to initialise the MCMC routine in some certain state. when doing our prior
+predictive check we actually sampled many times from the prior, so one way of
+initialising the MCMC routine is to use some of those (one for each chain):
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">initial_state</span> = [sample[:NUM_CHAINS] <span style="color: #F0DFAF; font-weight: bold;">for</span> sample <span style="color: #F0DFAF; font-weight: bold;">in</span> prior_samples]
+</pre>
+</div>
+
+<p>
+In some cases this might not be a good idea, in particular if you have vague priors.
+</p>
+
+<p>
+We also need to choose an initial step size, one of the parameters of Hamiltonian Monte
+Carlo algorithms, see <a href="https://colindcarroll.com/2019/04/21/step-size-adaptation-in-hamiltonian-monte-carlo/">Step Size Adaptation in Hamiltonian Monte Carlo</a> for more. This
+parameter will be tuned in the algorithm warmup but needs to start somewhere. I <b>think</b>
+Stan uses a value of 1 for this, so I follow them:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">initial_step_size</span> = [
+    tf.constant(INITIAL_STEP_SIZE, shape=[NUM_CHAINS] + [1] * (<span style="color: #DCDCCC; font-weight: bold;">len</span>(x.shape) - 1))
+    <span style="color: #F0DFAF; font-weight: bold;">for</span> x <span style="color: #F0DFAF; font-weight: bold;">in</span> initial_state
+]
+</pre>
+</div>
+
+<p>
+The shape magic is to allow each chain and each model parameter component to find a
+different step size in the warmup phase of the MCMC routine.
+</p>
+
+<p>
+I'm going to skim over the last few steps now, as they are more-or-less boilerplate and
+hopefully self explanatory:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">nuts</span> = tfp.mcmc.NoUTurnSampler(
+    target_log_prob_fn=target_log_prob_fn,
+    step_size=initial_step_size,
+)
+
+<span style="color: #DFAF8F;">transformed_nuts</span> = tfp.mcmc.TransformedTransitionKernel(
+    inner_kernel=nuts,
+    bijector=pinned_joint_bijector.bijectors,
+)
+
+<span style="color: #DFAF8F;">transformed_adaptive_nuts</span> = tfp.mcmc.DualAveragingStepSizeAdaptation(
+    inner_kernel=transformed_nuts,
+    num_adaptation_steps=<span style="color: #DCDCCC; font-weight: bold;">int</span>(PROPORTION_ADAPTION_STEPS * NUM_BURNIN_STEPS),
+)
+
+
+<span style="color: #7CB8BB;">@tf.function</span>(autograph=<span style="color: #BFEBBF;">False</span>, experimental_compile=<span style="color: #BFEBBF;">True</span>)
+<span style="color: #F0DFAF; font-weight: bold;">def</span> <span style="color: #93E0E3;">run_mcmc</span>():
+    <span style="color: #F0DFAF; font-weight: bold;">return</span> tfp.mcmc.sample_chain(
+        num_results=NUM_RESULTS,
+        num_burnin_steps=NUM_BURNIN_STEPS,
+        current_state=initial_state,
+        kernel=transformed_adaptive_nuts,
+        trace_fn=trace_fn,
+    )
+
+
+<span style="color: #DFAF8F;">posterior_samples</span>, <span style="color: #DFAF8F;">mcmc_stats</span> = run_mcmc()
+</pre>
+</div>
+
+<p>
+And that's it! We have posterior samples and some mcmc diagnostics, but did it work?
+(words based on one of my favourite paper titles: <a href="https://arxiv.org/abs/1802.02538">Yes, but Did It Work?: Evaluating
+Variational Inference</a>).
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgd16b592" class="outline-2">
+<h2 id="orgd16b592"><span class="section-number-2">6</span> Posterior analysis</h2>
+<div class="outline-text-2" id="text-6">
+<p>
+I think the first thing most people do after running some MCMC stuff is look at a
+summary table and some plots, so lets do that. We use the same <code>arviz.InferenceData</code>
+class as the prior predictive check section, but now we have more things to add in. This
+is actually my least favourite step and would love to know a better way of doing this
+(this is probably the <a href="https://arviz-devs.github.io/arviz/api/generated/arviz.from_tfp.html">arviz.from_tfp</a> function but I couldn't get it to work).
+</p>
+
+<p>
+Firstly, I don't want to have to remember the names and ordering of my model parameters
+defined in my joint distribution, so I resort to usin a private member function to get
+the parameter names back:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">parameter_names</span> = pinned_joint_dist._flat_resolve_names()
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(parameter_names)
+</pre>
+</div>
+
+<pre class="example">
+['intercept', 'coefficients', 'observation_scale']
+</pre>
+
+
+<p>
+Secondly, we can sample from the posterior predictive distribution as easily as we could
+from the prior, this is one of my favourite things about TFP:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python">*<span style="color: #DFAF8F;">_</span>, <span style="color: #DFAF8F;">posterior_predictive</span> = joint_dist.sample(value=posterior_samples)
+</pre>
+</div>
+
+<p>
+Thirdly, remember that arviz expects shapes to be of the form <code>(chain, draw, *shape)</code>
+and TFP gives us <code>(draw, chain, *shape)</code> hence we need to swap axes around.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">trace</span> = az.from_dict(
+    prior={k: v[tf.newaxis, ...] <span style="color: #F0DFAF; font-weight: bold;">for</span> k, v <span style="color: #F0DFAF; font-weight: bold;">in</span> <span style="color: #DCDCCC; font-weight: bold;">zip</span>(parameter_names, prior_samples)},
+    posterior={
+        k: np.swapaxes(v, 0, 1) <span style="color: #F0DFAF; font-weight: bold;">for</span> k, v <span style="color: #F0DFAF; font-weight: bold;">in</span> <span style="color: #DCDCCC; font-weight: bold;">zip</span>(parameter_names, posterior_samples)
+    },
+    prior_predictive={<span style="color: #CC9393;">"observations"</span>: prior_predictive[tf.newaxis, ...]},
+    posterior_predictive={<span style="color: #CC9393;">"observations"</span>: np.swapaxes(posterior_predictive, 0, 1)},
+    sample_stats={k: np.swapaxes(v, 0, 1) <span style="color: #F0DFAF; font-weight: bold;">for</span> k, v <span style="color: #F0DFAF; font-weight: bold;">in</span> mcmc_stats.items()},
+    coords={<span style="color: #CC9393;">"observation"</span>: np.arange(N), <span style="color: #CC9393;">"coefficient"</span>: np.arange(P)},
+    observed_data={<span style="color: #CC9393;">"observations"</span>: data.observations},
+    dims={<span style="color: #CC9393;">"observations"</span>: [<span style="color: #CC9393;">"observation"</span>], <span style="color: #CC9393;">"coefficients"</span>: [<span style="color: #CC9393;">"coefficient"</span>]},
+)
+
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(trace)
+</pre>
+</div>
+
+<pre class="example">
+Inference data with groups:
+	&gt; posterior
+	&gt; posterior_predictive
+	&gt; sample_stats
+	&gt; prior
+	&gt; prior_predictive
+	&gt; observed_data
+</pre>
+
+
+<p>
+But now that is over - we can easily do lots of stuff:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">print</span>(az.summary(trace).<span style="color: #DCDCCC; font-weight: bold;">filter</span>(items=[<span style="color: #CC9393;">"mean"</span>, <span style="color: #CC9393;">"hdi_3%"</span>, <span style="color: #CC9393;">"hdi_97%"</span>, <span style="color: #CC9393;">"ess_mean"</span>, <span style="color: #CC9393;">"r_hat"</span>]))
+</pre>
+</div>
+
+<pre class="example">
+                    mean  hdi_3%  hdi_97%  ess_mean  r_hat
+intercept         -0.226  -0.295   -0.155   13227.0    1.0
+coefficients[0]   -2.348  -2.416   -2.278   12830.0    1.0
+coefficients[1]   -0.228  -0.295   -0.158   13265.0    1.0
+coefficients[2]    0.291   0.219    0.359   12464.0    1.0
+coefficients[3]   -0.020  -0.087    0.050   14511.0    1.0
+coefficients[4]    0.385   0.318    0.457   13551.0    1.0
+observation_scale  1.846   1.798    1.893   15892.0    1.0
+</pre>
+
+
+<p>
+I only filter the columns here to not clutter the post too much.
+</p>
+
+<p>
+Again, the "true" values of the model parameters are:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">for</span> name <span style="color: #F0DFAF; font-weight: bold;">in</span> parameter_names:
+    <span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"{name}: {getattr(data, name).numpy()}"</span>)
+</pre>
+</div>
+
+<pre class="example">
+intercept: -0.20901992917060852
+coefficients: [-2.3835316  -0.19555189  0.3054796   0.030938    0.39104107]
+observation_scale: 1.8365525007247925
+</pre>
+
+
+<p>
+so everything looks OK so far!
+</p>
+
+<p>
+There are quite a few plots we can do, and I'm not going to talk about them in detail
+but will instead include hopefully helpful links:
+</p>
+</div>
+
+<div id="outline-container-orgc93ad38" class="outline-3">
+<h3 id="orgc93ad38"><span class="section-number-3">6.1</span> <a href="https://arviz-devs.github.io/arviz/api/generated/arviz.plot_ppc.html">arviz.plot_ppc</a></h3>
+<div class="outline-text-3" id="text-6-1">
+<p>
+We can do the posterior predictive check in the exact same way as the prior one - just
+change the <code>group</code> argument:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">ax</span> = az.plot_ppc(trace, group=<span style="color: #CC9393;">"posterior"</span>, num_pp_samples=500)
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/plot_posterior_ppc.png" alt="plot_posterior_ppc.png" />
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org592ca2e" class="outline-3">
+<h3 id="org592ca2e"><span class="section-number-3">6.2</span> <a href="https://arviz-devs.github.io/arviz/api/generated/arviz.plot_energy.html">arviz.plot_energy</a></h3>
+<div class="outline-text-3" id="text-6-2">
+<p>
+For more on this see <a href="https://arxiv.org/abs/1701.02434">A Conceptual Introduction to Hamiltonian Monte Carlo</a> TLDR the
+closer the two densities look the more likely the algorithm has worked. The plot also
+shows the Bayesian fraction of missing information (BFMI), which is defined in the paper
+alongside this note:
+</p>
+
+<blockquote>
+<p>
+Empirically, values of this energy Bayesian fraction of missing information below 0.3
+have proven problematic, although more theoretical work is needed to formalize any exact
+threshold.
+</p>
+</blockquote>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">ax</span> = az.plot_energy(trace)
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/energy_plot.png" alt="energy_plot.png" />
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org8287b2b" class="outline-3">
+<h3 id="org8287b2b"><span class="section-number-3">6.3</span> <a href="https://arviz-devs.github.io/arviz/api/generated/arviz.plot_dist_comparison.html">arviz.plot_dist_comparison</a></h3>
+<div class="outline-text-3" id="text-6-3">
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">axs</span> = az.plot_dist_comparison(trace, var_names=[<span style="color: #CC9393;">"intercept"</span>])
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/intercept_dist_comparison.png" alt="intercept_dist_comparison.png" />
+</p>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">axs</span> = az.plot_dist_comparison(trace, var_names=[<span style="color: #CC9393;">"observation_scale"</span>])
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/observation_scale_dist_comparison.png" alt="observation_scale_dist_comparison.png" />
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org653073d" class="outline-3">
+<h3 id="org653073d"><span class="section-number-3">6.4</span> <a href="https://arviz-devs.github.io/arviz/api/generated/arviz.plot_forest.html">arviz.plot_forest</a></h3>
+<div class="outline-text-3" id="text-6-4">
+<p>
+Unfortunately due to the small uncertainty in comparison to the difference in locations
+this plot looks a bit rubbish, but often it's really useful so I've included it.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">axs</span> = az.plot_forest(trace, var_names=[<span style="color: #CC9393;">"coefficients"</span>])
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/coefficients_forest_plot.png" alt="coefficients_forest_plot.png" />
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgb8bda75" class="outline-3">
+<h3 id="orgb8bda75"><span class="section-number-3">6.5</span> <a href="https://arviz-devs.github.io/arviz/api/generated/arviz.plot_trace.html">arviz.plot_trace</a></h3>
+<div class="outline-text-3" id="text-6-5">
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">axs</span> = az.plot_trace(trace, var_names=[<span style="color: #CC9393;">"intercept"</span>, <span style="color: #CC9393;">"observation_scale"</span>])
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/trace_plot.png" alt="trace_plot.png" />
+</p>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org5a74ca7" class="outline-2">
+<h2 id="org5a74ca7"><span class="section-number-2">7</span> Predicting on new data</h2>
+<div class="outline-text-2" id="text-7">
+<p>
+We've explored the posterior and everything looks fine, so next thing your pal comes
+along with a new design matrix with three rows and asks you to make predictions using
+all your fancy Bayesian stuff. Luckily it's easy to create a new joint distribution over
+these three new bits of data using the funciton we created at the start:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">new_design_matrix</span> = np.random.randn(3, P).astype(np.float32)
+<span style="color: #DFAF8F;">new_joint_dist</span> = make_joint_dist(new_design_matrix)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(new_joint_dist)
+</pre>
+</div>
+
+<pre class="example">
+tfp.distributions.JointDistributionCoroutineAutoBatched("JointDistributionCoroutineAutoBatched", batch_shape=[], event_shape=StructTuple(
+  intercept=[],
+  coefficients=[5],
+  observation_scale=[],
+  observations=[3]
+), dtype=StructTuple(
+  intercept=float32,
+  coefficients=float32,
+  observation_scale=float32,
+  observations=float32
+))
+</pre>
+
+<p>
+We can then sample observations using our posterior samples, that is, we are
+conditioning on the original dataset and predicting on this new one. This code is
+exactly the same as the first posterior predictive check we did:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python">*<span style="color: #DFAF8F;">_</span>, <span style="color: #DFAF8F;">new_posterior_predictive</span> = new_joint_dist.sample(value=posterior_samples)
+</pre>
+</div>
+
+<p>
+We could give a point estimate as a prediction using e.g. the posterior mean by
+averaging/reducing the chain and draw dimensions:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #F0DFAF; font-weight: bold;">print</span>(tf.reduce_mean(new_posterior_predictive, axis=[0, 1]))
+</pre>
+</div>
+
+<pre class="example">
+tf.Tensor([-0.7574589  -0.31100208 -3.9276493 ], shape=(3,), dtype=float32)
+</pre>
+
+
+<p>
+Or we could use arviz to plot the predictive distribution and admit our uncertainty:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">new_trace</span> = az.from_dict(
+      posterior_predictive={<span style="color: #CC9393;">"new_observations"</span>: np.swapaxes(new_posterior_predictive, 0, 1)},
+      coords={<span style="color: #CC9393;">"new_observations"</span>: np.arange(3)},
+      dims={<span style="color: #CC9393;">"new_observations"</span>: [<span style="color: #CC9393;">"new_observation"</span>]},
+  )
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"new_posterior_predictive:\n{new_trace.posterior_predictive}"</span>)
+</pre>
+</div>
+
+<pre class="example">
+new_posterior_predictive:
+&lt;xarray.Dataset&gt;
+Dimensions:           (chain: 8, draw: 1000, new_observation: 3)
+Coordinates:
+  * chain             (chain) int64 0 1 2 3 4 5 6 7
+  * draw              (draw) int64 0 1 2 3 4 5 6 ... 993 994 995 996 997 998 999
+  * new_observation   (new_observation) int64 0 1 2
+Data variables:
+    new_observations  (chain, draw, new_observation) float32 -2.394 ... -1.649
+Attributes:
+    created_at:     2021-01-06T22:21:17.335155
+    arviz_version:  0.10.0
+</pre>
+
+<div class="org-src-container">
+<pre class="src src-jupyter-python"><span style="color: #DFAF8F;">axs</span> = az.plot_density(
+    new_trace,
+    group=<span style="color: #CC9393;">"posterior_predictive"</span>,
+    outline=<span style="color: #BFEBBF;">False</span>,
+    shade=0.8,
+    point_estimate=<span style="color: #CC9393;">"mean"</span>,
+    hdi_prob=1,
+)
+</pre>
+</div>
+
+
+<div class="figure">
+<p><img src="../img/new_posterior_predictive.png" alt="new_posterior_predictive.png" />
+</p>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgbd7ba8d" class="outline-2">
+<h2 id="orgbd7ba8d"><span class="section-number-2">8</span> Conclusion</h2>
+<div class="outline-text-2" id="text-8">
+<p>
+This is quite a long post hopefully showing the beginnings of some sort of workflow with
+TFP and arviz. I'll try to keep it updated as I find out new things and hopefully have
+some time to focus on some parts in more detail or adding more steps (in particular
+model comparison).
+</p>
+</div>
+</div>

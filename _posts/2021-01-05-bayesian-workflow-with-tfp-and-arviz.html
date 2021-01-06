@@ -745,12 +745,11 @@ Or we could use arviz to plot the predictive distribution and admit our uncertai
       coords={<span style="color: #CC9393;">"new_observations"</span>: np.arange(3)},
       dims={<span style="color: #CC9393;">"new_observations"</span>: [<span style="color: #CC9393;">"new_observation"</span>]},
   )
-<span style="color: #F0DFAF; font-weight: bold;">print</span>(f<span style="color: #CC9393;">"new_posterior_predictive:\n{new_trace.posterior_predictive}"</span>)
+<span style="color: #F0DFAF; font-weight: bold;">print</span>(new_trace.posterior_predictive)
 </pre>
 </div>
 
 <pre class="example">
-new_posterior_predictive:
 &lt;xarray.Dataset&gt;
 Dimensions:           (chain: 8, draw: 1000, new_observation: 3)
 Coordinates:
@@ -760,7 +759,7 @@ Coordinates:
 Data variables:
     new_observations  (chain, draw, new_observation) float32 -2.394 ... -1.649
 Attributes:
-    created_at:     2021-01-06T22:21:17.335155
+    created_at:     2021-01-06T23:28:53.657267
     arviz_version:  0.10.0
 </pre>
 

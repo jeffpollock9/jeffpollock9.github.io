@@ -1,23 +1,12 @@
-# --- General options --- #
-
-# url is the full website URL
-# baseurl is the website's URL without the hostname
-
-# If you are building a simple GitHub user page (https://username.github.io) then use these settings:
-url: "https://jeffpollock9.github.io"
-baseurl: ""
-
-# If you are building a GitHub project page then use these settings:
-#url: "http://username.github.io/projectname"
-#baseurl: "/projectname"
+# Welcome to Beautiful Jekyll!
+# This config file is meant for settings that affect your entire website. When you first
+# set up your website you should go through all these settings and edit them, but after
+# the initial set up you won't need to come back to this file often.
 
 # --- Required options --- #
 
 # Name of website
-title: Jeff Pollock
-
-# Short description of your site
-description: Probably some sort of blog
+title: Probably some sort of blog
 
 # Your name to show in the footer
 author: Jeff Pollock
@@ -31,17 +20,11 @@ navbar-links:
   Tags: "https://jeffpollock9.github.io/tags"
   TODO: "TODO"
 
-# Image to show in the navigation bar - image must be a square (width = height)
-# Remove this parameter if you don't want an image in the navbar
-avatar: "/img/weim.jpg"
-
-# If you want to have an image logo in the top-left corner instead of the title text,
-# then specify the following parameter
-# title-img: /path/to/image
+# --- Logo --- #
 
 # Image to show in the navigation bar - works best with a square image
 # Remove this parameter if you don't want an image in the navbar
-avatar: "/assets/img/avatar-icon.png"
+avatar: "/img/weim.jpg"
 
 # By default, the image is cut into a circle. You can disable this behaviour by setting 'round-avatar: false'
 round-avatar: true
@@ -51,10 +34,6 @@ round-avatar: true
 #title-img: /path/to/image
 
 
-# Change all these values or delete the ones you don't want.
-# Important: you must keep the "name" parameter, everything else you can remove
-author:
-  name: Jeff Pollock
 # --- Footer social media links --- #
 
 # Select the social network links that you want to show in the footer.
@@ -85,18 +64,20 @@ social-network-links:
 
 # If you want to show a link to an RSS in the footer, add the site description here.
 # If you don't want to show an RSS link, remove the following line.
-rss-description: This website is a virtual proof that I'm awesome
+rss-description: Probably some sort of blog
 
-# Select which share links to show in posts
-# share-links-active:
-#   twitter: true
-#   facebook: true
-#   google: false
-#   linkedin: true
+# --- General options --- #
+
+# Select which social network share links to show in posts
+share-links-active:
+  twitter: false
+  facebook: false
+  linkedin: false
+  vk: false
 
 # How to display the link to your website in the footer
 # Remove this if you don't want a link in the footer
-url-pretty: "jeffpollock9.github.io"  # eg. "deanattali.com/beautiful-jekyll"
+url-pretty: "jeffpollock9.github.io"
 
 # Excerpt word length - Truncate the excerpt of each post on the feed page to the specified number of words
 excerpt_length: 50
@@ -108,7 +89,7 @@ feed_show_excerpt: true
 feed_show_tags: true
 
 # The keywords to associate with your website, for SEO purposes
-#keywords: "my,list,of,keywords"
+keywords: "tensorflow,probability,stan,bayesian,soccer"
 
 # --- Colours / background image --- #
 
@@ -249,4 +230,3 @@ plugins:
 
 # Beautiful Jekyll / Dean Attali
 # 2fc73a3a967e97599c9763d05e564189
-

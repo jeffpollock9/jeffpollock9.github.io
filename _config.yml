@@ -22,14 +22,12 @@ description: Probably some sort of blog
 # Your name to show in the footer
 author: Jeff Pollock
 
-full-width: true
-
 # --- List of links in the navigation bar --- #
 
 navbar-links:
   About Me: "aboutme"
   GitHub: "https://github.com/jeffpollock9"
-  Archive: "archive"
+  Posts: "posts"
   Tags: "https://jeffpollock9.github.io/tags"
   TODO: "TODO"
 

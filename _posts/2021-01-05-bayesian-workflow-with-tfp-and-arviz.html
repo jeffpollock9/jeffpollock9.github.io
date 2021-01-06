@@ -175,7 +175,7 @@ it - this is just an easy way to simulate some data and parameters for an exampl
 <h2 id="org13425d7"><span class="section-number-2">4</span> Prior predictive check</h2>
 <div class="outline-text-2" id="text-4">
 <p>
-One of the first things to consider doing is a <a href="https://betanalpha.github.io/assets/case_studies/principled_bayesian_workflow.html#113_prior_predictive_checks">prior predictive check</a>. This involved
+One of the first things to consider doing is a <a href="https://betanalpha.github.io/assets/case_studies/principled_bayesian_workflow.html#113_prior_predictive_checks">prior predictive check</a>. This involves
 sampling observations from our generative model without conditioning on any data. It's
 good to see that the observations generated from the model aren't completely ridiculous
 and also to catch any coding errors early on. It's also really easy to do so there's no
@@ -350,7 +350,7 @@ recording three statistics and naming them as per the <a href="https://arviz-dev
 </div>
 
 <p>
-We later show plots which make use of these values.y
+There are plots later which use some of these values.
 </p>
 
 <p>
@@ -359,9 +359,8 @@ function a lot easier.
 </p>
 
 <p>
-We need to initialise the MCMC routine in some certain state. when doing our prior
-predictive check we actually sampled many times from the prior, so one way of
-initialising the MCMC routine is to use some of those (one for each chain):
+When doing our prior predictive check we actually sampled many times from the prior, so
+one way of initialising the MCMC routine is to use some of those (one for each chain):
 </p>
 
 <div class="org-src-container">
@@ -451,7 +450,7 @@ is actually my least favourite step and would love to know a better way of doing
 
 <p>
 Firstly, I don't want to have to remember the names and ordering of my model parameters
-defined in my joint distribution, so I resort to usin a private member function to get
+defined in my joint distribution, so I resort to using a private member function to get
 the parameter names back:
 </p>
 
